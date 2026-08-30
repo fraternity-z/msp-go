@@ -26,8 +26,6 @@ var (
 	attrPattern         = regexp.MustCompile(`(?is)([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))`)
 	errorPattern        = regexp.MustCompile(`(?is)<[^>]*(?:id|class)=["'][^"']*showErrorTip[^"']*["'][^>]*>(.*?)</[^>]+>`)
 	htmlTagPattern      = regexp.MustCompile(`(?is)<[^>]+>`)
-	integerPattern      = regexp.MustCompile(`[0-9]+`)
-	sessionIDPattern    = regexp.MustCompile(`;jsessionid=.*?\?`)
 )
 
 func parseLoginPage(rawHTML string) loginPage {

@@ -299,6 +299,3 @@ func contentExcerpt(content string, limit int) string {
 	}
 	return string(runes[:limit])
 }
-
-// SetLeaseTTLForTest is intentionally package-private through tests in this package.
-func (s *Service) setLeaseTTLForTest(ttl time.Duration) { s.leaseTTL = ttl }

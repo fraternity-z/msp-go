@@ -635,7 +635,7 @@ func (s *Service) generateAssistant(ctx context.Context, input ChatAgentInput, o
 		return deliverAssistantOutput(output, false, deliver)
 	}
 	if !emitted {
-		if err := deliver(ChatAgentChunk{Agent: output.Agent, Content: output.Content}); err != nil {
+		if err := deliver(ChatAgentChunk(output)); err != nil {
 			return output, false, err
 		}
 	} else if streamed := deliveredContent.String(); streamed != output.Content {
@@ -656,7 +656,7 @@ func (s *Service) generateAssistant(ctx context.Context, input ChatAgentInput, o
 
 func deliverAssistantOutput(output ChatAgentOutput, metered bool, onChunk ChatAgentChunkHandler) (ChatAgentOutput, bool, error) {
 	if onChunk != nil && output.Content != "" {
-		if err := onChunk(ChatAgentChunk{Agent: output.Agent, Content: output.Content}); err != nil {
+		if err := onChunk(ChatAgentChunk(output)); err != nil {
 			return output, false, wrapChatStreamDeliveryError(err)
 		}
 	}

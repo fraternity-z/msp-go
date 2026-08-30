@@ -180,7 +180,7 @@ func (w *Worker) processJob(ctx context.Context, owner string, job Job) {
 		w.finishDead(ctx, owner, job, SendFailure{Disposition: FailureDead, Code: "unsupported_event"})
 		return
 	}
-	delivery, eligible, skipCode, err := w.repository.ResolveDelivery(ctx, w.config.AppID, job)
+	_, eligible, skipCode, err := w.repository.ResolveDelivery(ctx, w.config.AppID, job)
 	if err != nil {
 		w.transitionFailure(ctx, owner, job, SendFailure{Disposition: FailureRetry, Code: "resolve_failed"})
 		return
@@ -201,7 +201,7 @@ func (w *Worker) processJob(ctx context.Context, owner string, job Job) {
 		w.logTransition("renewed", job, renewed, err, "")
 		return
 	}
-	delivery, eligible, skipCode, err = w.repository.ResolveDelivery(ctx, w.config.AppID, job)
+	delivery, eligible, skipCode, err := w.repository.ResolveDelivery(ctx, w.config.AppID, job)
 	if err != nil {
 		w.transitionFailure(ctx, owner, job, SendFailure{Disposition: FailureRetry, Code: "resolve_failed"})
 		return

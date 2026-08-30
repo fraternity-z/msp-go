@@ -2,7 +2,7 @@
 
 ## 环境要求
 
-- Go 1.25.12（`go.mod` 声明 `go 1.25.0` 和 `toolchain go1.25.12`）
+- Go 1.25.13（`go.mod` 声明 `go 1.25.0` 和 `toolchain go1.25.13`）
 - Node.js 20 和 npm
 - PostgreSQL 18 + pgvector
 - Redis 7

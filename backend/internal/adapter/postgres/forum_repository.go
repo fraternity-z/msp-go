@@ -1584,13 +1584,3 @@ func scanForumReport(row interface{ Scan(...any) error }) (forumapp.Report, erro
 	item.CreatedAt = messageCenterWallTime(item.CreatedAt)
 	return item, nil
 }
-
-func errOrRows(rows int64, err error) error {
-	if err != nil {
-		return err
-	}
-	if rows == 0 {
-		return forumapp.ErrNotFound
-	}
-	return nil
-}

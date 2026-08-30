@@ -20,8 +20,9 @@ import (
 )
 
 const (
-	jwtIssuer   = "math-study-platform"
-	jwtAudience = "msp-api"
+	jwtIssuer         = "math-study-platform"
+	jwtAudience       = "msp-api"
+	maxJWTEncodedSize = 4 * 1024
 )
 
 var errInvalidToken = errors.New("invalid token")
@@ -70,15 +71,6 @@ func NewTokenService(secret, algorithm string, accessTTL, refreshTTL time.Durati
 	}, nil
 }
 
-func newTokenServiceWithClock(secret, algorithm string, accessTTL, refreshTTL time.Duration, now func() time.Time) (TokenService, error) {
-	service, err := NewTokenService(secret, algorithm, accessTTL, refreshTTL)
-	if err != nil {
-		return TokenService{}, err
-	}
-	service.now = now
-	return service, nil
-}
-
 // CreateAccessToken returns a signed access token bound to the account's current auth version.
 func (s TokenService) CreateAccessToken(subject string, role user.Role, authVersion int64) (string, error) {
 	if err := validateTokenIdentity(subject, authVersion); err != nil {
@@ -103,30 +95,37 @@ func (s TokenService) CreateRefreshToken(subject string, authVersion int64) (str
 
 // Decode verifies a token and returns its compatible claims.
 func (s TokenService) Decode(token string) (TokenClaims, error) {
-	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
+	if token == "" || len(token) > maxJWTEncodedSize {
+		return TokenClaims{}, errInvalidToken
+	}
+	headerSegment, remainder, ok := strings.Cut(token, ".")
+	if !ok || headerSegment == "" {
+		return TokenClaims{}, errInvalidToken
+	}
+	claimsSegment, signatureSegment, ok := strings.Cut(remainder, ".")
+	if !ok || claimsSegment == "" || signatureSegment == "" || strings.ContainsRune(signatureSegment, '.') {
 		return TokenClaims{}, errInvalidToken
 	}
 
 	var header map[string]any
-	if err := decodeSegment(parts[0], &header); err != nil {
+	if err := decodeSegment(headerSegment, &header); err != nil {
 		return TokenClaims{}, errInvalidToken
 	}
 	alg, ok := header["alg"].(string)
-	if !ok || strings.ToUpper(alg) != s.algorithm {
+	if !ok || alg != s.algorithm {
 		return TokenClaims{}, errInvalidToken
 	}
 
-	expected, err := s.sign(parts[0] + "." + parts[1])
+	expected, err := s.sign(headerSegment + "." + claimsSegment)
 	if err != nil {
 		return TokenClaims{}, err
 	}
-	if subtle.ConstantTimeCompare([]byte(parts[2]), []byte(expected)) != 1 {
+	if subtle.ConstantTimeCompare([]byte(signatureSegment), []byte(expected)) != 1 {
 		return TokenClaims{}, errInvalidToken
 	}
 
 	var rawClaims map[string]any
-	if err := decodeSegment(parts[1], &rawClaims); err != nil {
+	if err := decodeSegment(claimsSegment, &rawClaims); err != nil {
 		return TokenClaims{}, errInvalidToken
 	}
 	if !claimMatches(rawClaims["iss"], jwtIssuer) || !audienceMatches(rawClaims["aud"], jwtAudience) {
@@ -135,7 +134,7 @@ func (s TokenService) Decode(token string) (TokenClaims, error) {
 	subject, _ := rawClaims["sub"].(string)
 	tokenType, _ := rawClaims["type"].(string)
 	jti, _ := rawClaims["jti"].(string)
-	if subject == "" || tokenType == "" || jti == "" {
+	if subject == "" || jti == "" || (tokenType != "access" && tokenType != "refresh") {
 		return TokenClaims{}, errInvalidToken
 	}
 

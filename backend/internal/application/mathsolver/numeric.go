@@ -163,7 +163,7 @@ func (c *Comparator) parseDecimal(value string) (*big.Rat, error) {
 
 	exponent := 0
 	if index := strings.IndexAny(value, "eE"); index >= 0 {
-		if strings.IndexAny(value[index+1:], "eE") >= 0 {
+		if strings.ContainsAny(value[index+1:], "eE") {
 			return nil, numericSyntaxIssue()
 		}
 		parsedExponent, err := parseBoundedExponent(value[index+1:], c.limits.MaxExponent)

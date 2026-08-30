@@ -2,7 +2,7 @@ module mathstudy/backend
 
 go 1.25.0
 
-toolchain go1.25.12
+toolchain go1.25.13
 
 require (
 	github.com/alicebob/miniredis/v2 v2.37.0

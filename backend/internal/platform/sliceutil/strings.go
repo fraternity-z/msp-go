@@ -9,18 +9,20 @@ func CloneStrings(values []string) []string {
 
 // AppendUniqueNonEmptyStrings returns trimmed non-empty strings in first-seen order across values and extras.
 func AppendUniqueNonEmptyStrings(values []string, extras ...string) []string {
-	seen := map[string]struct{}{}
+	seen := make(map[string]struct{}, len(values)+len(extras))
 	result := make([]string, 0, len(values)+len(extras))
-	for _, value := range append(values, extras...) {
-		value = strings.TrimSpace(value)
-		if value == "" {
-			continue
+	for _, batch := range [2][]string{values, extras} {
+		for _, value := range batch {
+			value = strings.TrimSpace(value)
+			if value == "" {
+				continue
+			}
+			if _, ok := seen[value]; ok {
+				continue
+			}
+			seen[value] = struct{}{}
+			result = append(result, value)
 		}
-		if _, ok := seen[value]; ok {
-			continue
-		}
-		seen[value] = struct{}{}
-		result = append(result, value)
 	}
 	return result
 }

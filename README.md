@@ -24,7 +24,7 @@
 
 ## 快速开始
 
-建议使用与仓库配置一致的 Go 1.25.10、Node.js 20、PostgreSQL 18 + pgvector 和 Redis 7。
+建议使用与仓库配置一致的 Go 1.25.13、Node.js 20、PostgreSQL 18 + pgvector 和 Redis 7。
 
 ```powershell
 Copy-Item .env.example .env

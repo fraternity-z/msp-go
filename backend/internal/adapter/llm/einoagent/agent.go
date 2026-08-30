@@ -411,7 +411,7 @@ func (a *ConfigurableAgent) Stream(ctx context.Context, input sessionapp.ChatAge
 		} else {
 			output, err = agent.Generate(ctx, input)
 			if err == nil {
-				err = deliver(sessionapp.ChatAgentChunk{Agent: output.Agent, Content: output.Content})
+				err = deliver(sessionapp.ChatAgentChunk(output))
 			}
 		}
 		if err != nil {

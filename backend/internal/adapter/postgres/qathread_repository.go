@@ -61,7 +61,6 @@ func (r QAThreadRepository) listStudentThreads(ctx context.Context, studentID st
 	if strings.TrimSpace(teacherID) != "" {
 		where += ` AND qt.teacher_id = $` + idxStr(idx)
 		args = append(args, teacherID)
-		idx++
 	}
 
 	var total int
@@ -139,7 +138,6 @@ func (r QAThreadRepository) listTeacherThreads(ctx context.Context, teacherID st
 	if strings.TrimSpace(className) != "" {
 		where += ` AND STRPOS(LOWER(COALESCE(cls.name, qt.class_name, '')), LOWER($` + idxStr(idx) + `)) > 0`
 		args = append(args, className)
-		idx++
 	}
 
 	var total int

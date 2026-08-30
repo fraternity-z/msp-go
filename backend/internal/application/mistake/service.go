@@ -931,41 +931,6 @@ func toReviewTaskResponse(row ReviewTaskRow, knowledgeNames map[string]string) R
 	return response
 }
 
-func sortListItems(items []listItemData, sortBy string, sortOrder string) {
-	descending := strings.EqualFold(sortOrder, "desc")
-	sort.SliceStable(items, func(i, j int) bool {
-		cmp := 0
-		switch sortBy {
-		case "error_count":
-			cmp = compareInt(items[i].errorCount, items[j].errorCount)
-		case "mastery":
-			cmp = compareFloat(items[i].avgMastery, items[j].avgMastery)
-		default:
-			cmp = compareOptionalTime(items[i].row.Attempt.SubmittedAt, items[j].row.Attempt.SubmittedAt)
-		}
-		if cmp == 0 {
-			cmp = strings.Compare(items[i].row.Attempt.ID, items[j].row.Attempt.ID)
-		}
-		if descending {
-			cmp = -cmp
-		}
-		return cmp < 0
-	})
-}
-
-func matchesMasteryStatus(avgMastery float64, status string) bool {
-	switch status {
-	case "weak":
-		return avgMastery < 0.4
-	case "improving":
-		return avgMastery >= 0.4 && avgMastery < 0.7
-	case "mastered":
-		return avgMastery >= 0.7
-	default:
-		return true
-	}
-}
-
 func buildErrorTypeDistribution(counts map[string]int, total int) map[string]ErrorTypeDistribution {
 	labels := map[string]string{
 		"conceptual":  "概念性错误",
@@ -1089,47 +1054,6 @@ func countWeakConcepts(mastery map[string]float64) int {
 		}
 	}
 	return total
-}
-
-func compareOptionalTime(left *time.Time, right *time.Time) int {
-	if left == nil && right == nil {
-		return 0
-	}
-	if left == nil {
-		return -1
-	}
-	if right == nil {
-		return 1
-	}
-	if left.Before(*right) {
-		return -1
-	}
-	if left.After(*right) {
-		return 1
-	}
-	return 0
-}
-
-func compareInt(left int, right int) int {
-	switch {
-	case left < right:
-		return -1
-	case left > right:
-		return 1
-	default:
-		return 0
-	}
-}
-
-func compareFloat(left float64, right float64) int {
-	switch {
-	case left < right:
-		return -1
-	case left > right:
-		return 1
-	default:
-		return 0
-	}
 }
 
 func reviewQuestionType(content Content) string {

@@ -1389,13 +1389,6 @@ func dateString(value time.Time) string {
 	return value.Format("2006-01-02")
 }
 
-func uniformScheduleStartDate(settings ClassSettings, today time.Time) time.Time {
-	if settings.TodayAssignmentCount > 0 && settings.EffectiveStrategy == StrategyPersonalized {
-		return today.AddDate(0, 0, 1)
-	}
-	return today
-}
-
 func timePointer(value time.Time) *string {
 	if value.IsZero() {
 		return nil

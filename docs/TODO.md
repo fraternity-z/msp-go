@@ -69,7 +69,7 @@
 - [ ] 使用临时 PostgreSQL Repository 集成测试验证默认值、枚举、级联、事务、聚合读模型和迁移兼容性，记录结果后删除测试源码，关闭旧 R2 状态；2026-07-17 历史基线为 Go 总 statements 58.1%、PostgreSQL adapter 12.4%。
 - [ ] 对前端认证、练习、会话、题库导入、图谱转换和公共 HTTP 层分批执行临时覆盖率验证，核心业务逻辑目标 80% 以上；记录覆盖率后删除测试源码，不建立需要永久测试文件的门槛。2026-07-17 历史全仓 statements 基线为 29.64%。
 - [x] 2026-07-28 删除阻碍目录统一命名的空上传遗留目录，并将 Go 服务统一到 `backend/`。
-- [ ] 统一 `go.mod`、后端 Docker builder、README 和开发指南中的 Go 补丁版本；当前 `go.mod`、Docker builder 和开发指南使用 Go 1.25.12，但根 README 仍写为 Go 1.25.10。
+- [x] 2026-08-30 将 `go.mod`、后端 Docker builder、README 和开发指南统一为 Go 1.25.13；Go 自动工具链与 Docker Hub `golang:1.25.13-alpine` 标签可用，升级后的 `govulncheck` 未发现可达漏洞。临时 JWT 与切片工具测试分别达到 93.5% 和 100% statements，受影响包及全量 Go 测试、`go vet`、Go 构建、排除 Style 规则的 `staticcheck`、前端 lint 与生产构建通过，临时测试源码已删除。
 - [ ] 补充数据库 Schema 和关键读模型说明，避免依赖超长迁移记录理解当前结构。
 - [ ] 校准当前文档账本：开发指南迁移范围仍写为 `0001` 至 `0015`，实际规范迁移链已到 `0016`、后续应从 `0017` 开始；将 `backend-python-to-go-refactor.md` 明确归档或更新其中过期的 P0/P4/P6/P7 状态和 Tutor 流式待办，保持本文为唯一当前待办清单。
 

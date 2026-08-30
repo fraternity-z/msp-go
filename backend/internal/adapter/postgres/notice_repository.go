@@ -113,7 +113,6 @@ func (r NoticeRepository) listTeacherNotices(ctx context.Context, teacherID stri
 	if strings.TrimSpace(className) != "" {
 		where += ` AND STRPOS(LOWER(n.class_name), LOWER($` + idxStr(idx) + `)) > 0`
 		args = append(args, className)
-		idx++
 	}
 	switch status {
 	case "有未确认":

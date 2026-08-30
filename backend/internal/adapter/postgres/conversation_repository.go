@@ -137,7 +137,6 @@ func (r ConversationRepository) listTeacherConversations(ctx context.Context, te
 	if strings.TrimSpace(className) != "" {
 		searchFilter += ` AND STRPOS(LOWER(c.subject), LOWER($` + idxStr(whereIdx) + `)) > 0`
 		args = append(args, className)
-		whereIdx++
 	}
 	switch status {
 	case "未读":
