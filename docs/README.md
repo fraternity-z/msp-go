@@ -18,6 +18,7 @@
 | 文档 | 定位 |
 |------|------|
 | [Go 数据库迁移策略](../backend/migrations/README.md) | 新增迁移、执行、验证和回滚规则 |
+| [资源中心 PostgreSQL + Milvus 双数据库方案](technical/resource-center-milvus-architecture.md) | 拟议目标架构、数据模型、同步一致性、RAG、安全、部署与分阶段验收；未落地前不属于当前运行链路 |
 | [前端说明](../frontend/README.md) | 前端常用命令和目录约定 |
 | [第三方声明](../frontend/THIRD_PARTY_NOTICES.md) | 前端第三方素材与许可证声明 |
 | [协作规则](../AGENTS.md) | 代码质量、临时测试清理、Git 和数据库迁移约束 |

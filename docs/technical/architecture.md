@@ -1,6 +1,6 @@
 # 系统架构
 
-本文描述 MathStudyPlatform 当前有效的技术架构。未完成工作见 [项目待办](../TODO.md)，历史时间点资料见 [归档索引](../archive/README.md)。
+本文描述 MathStudyPlatform 当前有效的技术架构。未完成工作见 [项目待办](../TODO.md)，历史时间点资料见 [归档索引](../archive/README.md)。资源中心接入 Milvus 的拟议目标架构见 [资源中心 PostgreSQL + Milvus 双数据库方案](resource-center-milvus-architecture.md)；在方案完成实施和验收前，Milvus 不属于本页所述当前运行链路。
 
 ## 系统边界
 
