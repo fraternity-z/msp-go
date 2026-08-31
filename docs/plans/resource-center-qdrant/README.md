@@ -1,7 +1,8 @@
 # 资源中心 Qdrant 专项开发计划
 
-> 状态：`TODO`
+> 状态：`IN_PROGRESS`
 > 建立日期：2026-08-30
+> 当前执行：P0 基线与决策冻结（尚未通过阶段门禁）
 > 目标架构：[资源中心 PostgreSQL + Qdrant 双数据库方案](../../technical/resource-center-qdrant-architecture.md)
 > 专项总跟踪：[PROGRESS.md](PROGRESS.md)
 
@@ -15,7 +16,7 @@
 
 ## 2. 当前基线
 
-截至 2026-08-30，已核对的实现基线如下：
+截至 2026-08-31，已核对的实现基线如下：
 
 | 范围 | 当前事实 | 计划影响 |
 |---|---|---|
@@ -29,6 +30,20 @@
 | Worker | 当前没有 `backend/cmd/vector-worker` | P2 新建独立进程并复用现有优雅停止模式 |
 | 会话 | `backend/internal/application/session` 已通过 `ChatAgent` port 接入 AI，并有上下文预算 | P3 新增窄 `KnowledgeRetriever` port，由 composition root 注入 |
 | 开发部署 | `docker-compose.yml` 当前只有 PostgreSQL、Redis、backend、frontend | P1 以开发 profile 增加 Qdrant 单节点依赖，生产按需升级为 cluster/Cloud |
+
+## 3.1 本次执行的阶段计划与验收输出
+
+每个阶段独立修改、独立验证并独立提交；阶段未满足退出条件时，不提前进入下一阶段。
+
+| 阶段 | 目标 | 主要文件/模块 | 验证方式 | 预期产出与阶段门禁 |
+|---|---|---|---|---|
+| P0 | 记录当前事实，冻结模型、集合、权限、降级和运维边界 | 本目录 P0 文档、`docs/technical/development.md`、`docs/TODO.md` | 文档交叉核对、`git diff --check`、现有 Go/前端基线命令；记录 Docker/Qdrant 环境阻断 | 决策登记、基线证据、风险与实施顺序；D-001～D-010 全部 `DECIDED` 或合规 `DEFERRED` 后才过门 |
+| P1 | 建立可回退的 schema、application port、配置和 Qdrant adapter 边界 | `backend/migrations/`、`backend/internal/application/`、`backend/internal/adapter/qdrant/`、配置/Compose/健康检查 | Mock 契约测试、迁移复跑、`go test`/`go vet`/`go build`、可用环境下 Compose smoke | 基础契约和开发 Qdrant 可用；无业务写入和完整 RAG |
+| P2 | 打通上传到向量索引的异步、幂等、可重试闭环 | resource service/repository、outbox/job、`backend/cmd/vector-worker`、解析/embedding/Qdrant adapter | 临时测试覆盖公共/边界/错误路径，崩溃重启与重复投递回放，对账和删除验证 | 资源版本可形成可检索向量；发布、失败、重试和清理语义可证明 |
+| P3 | 提供混合检索、最终鉴权、引用和 Session RAG MVP | retrieval application port、PostgreSQL FTS、Qdrant adapter、session 组合根、HTTP 契约 | 权限负向测试、RRF/降级验证、引用一致性、端到端 smoke | 检索结果不越权，Qdrant 故障可按 D-008 回退，MVP 门通过 |
+| P4 | 完成生产拓扑、安全、观测、备份恢复和故障演练 | 部署/运维文档、指标告警、备份脚本、恢复与重建流程 | 生产样拓扑演练、故障注入、RPO/RTO 和安全扫描 | 生产就绪门通过，形成可操作运行手册 |
+| P5 | 在批准规模上验证性能和检索质量 | 基准脚本、评测集、索引参数和查询配置 | 固定负载 P95/P99/QPS、backlog、Recall/MRR/nDCG、引用正确率 | 达到 P0 批准的 SLO/阈值，结论可复现 |
+| P6 | 扩展多租户、高可用、模型切换和智能增强 | ACL/租户模型、拓扑、generation/alias、rerank/查询扩展 | 隔离与容灾演练、模型切换、跨租户负向测试 | 高级能力验收通过；不改变前序阶段的默认隔离承诺 |
 
 ## 3. 阶段拆分
 
@@ -55,6 +70,10 @@ P0 -> P1 -> P2 -> P3 -> P4 -> P5 -> P6
 ```
 
 P4 的威胁建模、指标设计和运行手册草拟可在 P1-P3 并行准备，但不得在 P3 MVP 未通过前宣告生产就绪。P5 的基线数据应从 P0 开始准备，调优结论必须建立在 P3 的正确性与权限验收之上。P6 不得提前用“未来多租户”放宽 P0-P5 的默认隔离规则。
+
+## 4.1 当前执行暂停点
+
+本次已完成代码、迁移、配置、部署和相似 worker/health 模式的静态基线核对，并记录了可复用的验证命令。由于 D-001～D-010 仍未由项目负责人及相关评审人确认，且本机没有 Docker CLI，当前只交付 P0 文档检查点，不创建生产 schema、Qdrant collection、embedding 调用或向量数据。收到决策矩阵并提供可运行的 Docker/Qdrant 验证环境后，才启动 P1。
 
 ## 5. 状态与完成规则
 

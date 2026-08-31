@@ -115,7 +115,7 @@ go run ./cmd/migrate
 go run ./cmd/migrate  # 重复执行应无待应用版本
 ```
 
-当前共享迁移链是 `0001` 至 `0015`。`0005` 至 `0010` 交付每日题、画像、每日题一致性和错题闭环，`0011` 至 `0014` 交付论坛、学习会话模式、首次聊天幂等和 AI 参数默认值，`0015_auth_version` 交付账户级令牌失效。全新数据库首次应记录 version 1 至 15；version 14 数据库只新增 version 15；复跑应无待应用版本。曾执行旧草稿 10 至 13 或旧错题草稿占用 version 11 的本地数据库，必须按 [迁移策略](../../backend/migrations/README.md) 的专用校准流程处理，不能删除账本后重放。runner 会校验数据库中的版本、名称和未知记录；其他旧开发链仍应重建或设计数据保留方案。
+当前共享迁移链是 `0001` 至 `0016`。`0005` 至 `0010` 交付每日题、画像、每日题一致性和错题闭环，`0011` 至 `0014` 交付论坛、学习会话模式、首次聊天幂等和 AI 参数默认值，`0015_auth_version` 交付账户级令牌失效，`0016_local_upload_access` 交付本地上传对象归属登记及附件 JSONB 索引。全新数据库首次应记录 version 1 至 16；version 15 数据库只新增 version 16；复跑应无待应用版本。曾执行旧草稿 10 至 13 或旧错题草稿占用 version 11 的本地数据库，必须按 [迁移策略](../../backend/migrations/README.md) 的专用校准流程处理，不能删除账本后重放。runner 会校验数据库中的版本、名称和未知记录；其他旧开发链仍应重建或设计数据保留方案。资源中心 Qdrant 专项的下一条迁移必须在 P0 决策冻结后从 `0017` 开始，详见 [专项进度](../plans/resource-center-qdrant/PROGRESS.md)。
 
 ## 环境配置
 
@@ -197,7 +197,7 @@ WECHAT_QA_MESSAGE_TEMPLATE_ID=
 
 若测试号页面没有消息加解密模式选项，使用 `plain`。不要自行编造 `AES_KEY`，兼容模式和安全模式必须使用微信后台对应的 `EncodingAESKey`。
 
-消息中心结构和北京时间默认值由 `backend/migrations/0003_communication.up.sql` 交付，微信公众号绑定和基础提醒任务由 `0004_delivery_integrations.up.sql` 交付；每日一题、画像、每日题一致性和错题闭环由 `0005` 至 `0010` 交付；论坛、学习会话一致性和 AI 参数默认值由 `0011` 至 `0014` 交付；账户级令牌失效由 `0015_auth_version.up.sql` 交付。全新数据库第一次运行应记录版本 `1` 至 `15`，version 14 数据库应只新增 version 15，第二次运行都应无待应用版本。
+消息中心结构和北京时间默认值由 `backend/migrations/0003_communication.up.sql` 交付，微信公众号绑定和基础提醒任务由 `0004_delivery_integrations.up.sql` 交付；每日一题、画像、每日题一致性和错题闭环由 `0005` 至 `0010` 交付；论坛、学习会话一致性和 AI 参数默认值由 `0011` 至 `0014` 交付；账户级令牌失效由 `0015_auth_version.up.sql` 交付；本地上传对象归属登记和附件 JSONB 索引由 `0016_local_upload_access.up.sql` 交付。全新数据库第一次运行应记录版本 `1` 至 `16`，version 15 数据库应只新增 version 16，第二次运行都应无待应用版本。
 
 ```powershell
 Set-Location backend
