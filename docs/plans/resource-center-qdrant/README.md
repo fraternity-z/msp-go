@@ -2,7 +2,7 @@
 
 > 状态：`IN_PROGRESS`
 > 建立日期：2026-08-30
-> 当前执行：P0 基线与决策冻结（尚未通过阶段门禁）
+> 当前执行：P1 数据与契约基础（已启动）
 > 目标架构：[资源中心 PostgreSQL + Qdrant 双数据库方案](../../technical/resource-center-qdrant-architecture.md)
 > 专项总跟踪：[PROGRESS.md](PROGRESS.md)
 
@@ -73,7 +73,7 @@ P4 的威胁建模、指标设计和运行手册草拟可在 P1-P3 并行准备�
 
 ## 4.1 当前执行暂停点
 
-本次已完成代码、迁移、配置、部署和相似 worker/health 模式的静态基线核对，并记录了可复用的验证命令。由于 D-001～D-010 仍未由项目负责人及相关评审人确认，且本机没有 Docker CLI，当前只交付 P0 文档检查点，不创建生产 schema、Qdrant collection、embedding 调用或向量数据。收到决策矩阵并提供可运行的 Docker/Qdrant 验证环境后，才启动 P1。
+P0 已按可回退工程默认值完成冻结；D-002、D-004、D-005、D-009、D-010 已登记为有复核日期的 `DEFERRED`，不阻止供应商无关的 P1 契约实现，但会阻止相应后续阶段通过。P1 已启动，先交付 migration、ports、配置和 adapter 边界；本机没有 Docker CLI，开发 Qdrant live health smoke 需在外部验证环境补做。
 
 ## 5. 状态与完成规则
 

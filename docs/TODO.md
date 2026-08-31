@@ -20,7 +20,7 @@
 
 ### 资源中心向量检索
 
-- [ ] 按 P0-P6 分阶段接入 Qdrant：已完成当前代码/迁移/配置/部署和相似 worker/health 模式的静态基线检查，D-001～D-010 仍待冻结；进入 P1 前需确认决策矩阵并提供可运行的 Docker/Qdrant 验证环境，详见 [专项进度](plans/resource-center-qdrant/PROGRESS.md)。
+- [ ] 按 P0-P6 分阶段接入 Qdrant：P0 决策与基线已完成，P1 数据/契约基础已启动；D-002、D-004、D-005、D-009、D-010 按日期暂缓，Docker/Qdrant live smoke 仍待可运行环境，详见 [专项进度](plans/resource-center-qdrant/PROGRESS.md)。
 
 ### AI 学习闭环
 

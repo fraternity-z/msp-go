@@ -1,23 +1,23 @@
 # 资源中心 Qdrant 专项总进度
 
 > 专项状态：`IN_PROGRESS`
-> 当前阶段：P0 开发准备与决策冻结
-> 当前里程碑：M0 决策与基线就绪
-> 最后更新：2026-08-31
+> 当前阶段：P1 数据与契约基础
+> 当前里程碑：M1 基础契约就绪
+> 最后更新：2026-09-01
 > 维护入口：[目录说明](README.md)
 
 ## 1. 总体摘要
 
-当前已完成目标架构阅读、现状代码核对、相似实现核对和阶段拆分，并交付了 P0 静态基线检查点；尚未进入功能编码。P0 的 10 项关键决策均为开放状态，且本机缺少 Docker CLI，因此 P1 不应开始写生产 schema 或绑定具体 embedding/Qdrant 契约。
+P0 已完成决策冻结和基线记录，允许进入 P1 的契约实现。五项依赖真实语料、容量或运维责任人的决策按日期暂缓；它们不阻止 P1 的供应商无关骨架，但会阻止对应后续阶段宣告通过。本机缺少 Docker CLI，P1 的 live Qdrant smoke 仍需在具备 Docker 的环境补做。
 
 | 指标 | 当前值 |
 |---|---:|
 | 总任务 | 88 |
-| 已完成任务 | 1 |
-| 总体进度 | 1.1% |
-| 开放决策 | 10 |
+| 已完成任务 | 14 |
+| 总体进度 | 15.9% |
+| 开放决策 | 5 |
 | 开放高/严重风险 | 5 |
-| 当前阻断 | P0 决策尚未冻结；本机 Docker CLI 不可用，无法执行 Compose/Qdrant smoke |
+| 当前阻断 | 本机 Docker CLI 不可用，无法执行 Compose/Qdrant live smoke；不阻止 P1 Mock/静态契约实现 |
 
 进度按已完成任务数计算，只用于反映执行量，不代替阶段门禁。阶段未满足退出条件时，即使任务勾选率为 100%，也不能标记 `DONE`。
 
@@ -25,8 +25,8 @@
 
 | 阶段 | 状态 | 完成任务 | 依赖 | 里程碑 | 计划结果 |
 |---|---|---:|---|---|---|
-| [P0 开发准备与决策冻结](00-development-readiness.md) | `IN_PROGRESS` | 1/14 | 无 | M0 | 决策、SLO、基线和风险边界冻结 |
-| [P1 数据与契约基础](01-data-and-contract-foundation.md) | `TODO` | 0/12 | P0 | M1 | schema、port、配置和开发 Qdrant 可用 |
+| [P0 开发准备与决策冻结](00-development-readiness.md) | `DONE` | 14/14 | 无 | M0 | 决策、SLO、基线和风险边界冻结 |
+| [P1 数据与契约基础](01-data-and-contract-foundation.md) | `IN_PROGRESS` | 0/12 | P0 | M1 | schema、port、配置和开发 Qdrant 可用 |
 | [P2 入库与向量索引](02-ingestion-and-vector-indexing.md) | `TODO` | 0/14 | P1 | M2 | 文档可异步、幂等地形成可检索向量 |
 | [P3 检索与 RAG 集成](03-retrieval-and-rag-integration.md) | `TODO` | 0/13 | P2 | M3 | 混合检索和 Session RAG MVP 可用 |
 | [P4 生产就绪](04-production-readiness.md) | `TODO` | 0/12 | P3 | M4 | 安全、观测、恢复和生产拓扑通过验收 |
@@ -37,8 +37,8 @@
 
 | 里程碑 | 状态 | 通过条件 |
 |---|---|---|
-| M0 决策与基线就绪 | `IN_PROGRESS` | D-001 至 D-010 全部 `DECIDED`，代表性语料、质量/性能基线和威胁模型可复用 |
-| M1 基础契约就绪 | `TODO` | forward migration、application ports、配置校验、Qdrant adapter 骨架和开发健康检查通过 |
+| M0 决策与基线就绪 | `DONE` | D-001、D-003、D-006、D-007、D-008 已决定；D-002、D-004、D-005、D-009、D-010 已记录合规暂缓和复核日期，代表性基线与威胁边界可供后续复用 |
+| M1 基础契约就绪 | `IN_PROGRESS` | forward migration、application ports、配置校验、Qdrant adapter 骨架和开发健康检查通过 |
 | M2 入库索引闭环 | `TODO` | 上传到可检索向量全链路通过，崩溃重试、幂等、删除和对账行为可证明 |
 | M3 MVP 可用 | `TODO` | 混合检索、PostgreSQL 最终鉴权、引用、Session 集成和 FTS 降级通过 |
 | M4 生产就绪 | `TODO` | 生产拓扑、安全审计、告警、备份恢复、重建和故障演练通过 |
@@ -51,16 +51,16 @@
 
 | ID | 决策 | 状态 | 负责人 | 截止 | 结论或记录 |
 |---|---|---|---|---|---|
-| D-001 | MVP 支持的 MIME、单文件大小、页数和批量上限 | `OPEN` | 待定 | P0 |  |
-| D-002 | embedding provider、model、revision、dim、metric 与合规边界 | `OPEN` | 待定 | P0 |  |
-| D-003 | collection、payload index、alias、shard key 命名、共享粒度与 placement 规则 | `OPEN` | 待定 | P0 |  |
-| D-004 | 质量 SLO、评测集、Recall/MRR/nDCG 与引用正确率阈值 | `OPEN` | 待定 | P0 |  |
-| D-005 | 性能 SLO、容量区间、并发、P95/P99 与成本预算 | `OPEN` | 待定 | P0 |  |
-| D-006 | 强/最终一致性边界、版本保留、软删除和终态保留周期 | `OPEN` | 待定 | P0 |  |
-| D-007 | ACL 优先级、deny 语义、默认租户/知识库与最终鉴权规则 | `OPEN` | 待定 | P0 |  |
-| D-008 | Qdrant、embedding、rerank 故障时的降级模式与用户契约 | `OPEN` | 待定 | P0 |  |
-| D-009 | PostgreSQL、对象存储和 Qdrant 的 RPO/RTO、备份及跨区要求 | `OPEN` | 待定 | P0 |  |
-| D-010 | 单节点到 Qdrant cluster/Cloud 的切换阈值和生产拓扑 | `OPEN` | 待定 | P0 |  |
+| D-001 | MVP 支持的 MIME、单文件大小、页数和批量上限 | `DECIDED` | Codex | 2026-09-01 | PDF/DOCX/TXT/MD；50 MiB、200 页、200 万字符、单批 10 个、120 秒；禁压缩包/扫描 PDF |
+| D-002 | embedding provider、model、revision、dim、metric 与合规边界 | `DEFERRED` | 项目负责人/安全评审 | 2026-09-08 | 供应商无关适配器先行；需确认实际模型、维度、合规和费用后再进入 P2 |
+| D-003 | collection、payload index、alias、shard key 命名、共享粒度与 placement 规则 | `DECIDED` | Codex | 2026-09-01 | 共享 dense collection、COSINE、强制 payload index；MVP 无 alias/custom shard |
+| D-004 | 质量 SLO、评测集、Recall/MRR/nDCG 与引用正确率阈值 | `DEFERRED` | 产品/教学评审 | 2026-09-08 | 补代表性语料和标注责任后冻结；此前不宣称质量达标 |
+| D-005 | 性能 SLO、容量区间、并发、P95/P99 与成本预算 | `DEFERRED` | 运维/产品评审 | 2026-09-08 | 补目标负载和预算后冻结；开发小数据只做可执行性验证 |
+| D-006 | 强/最终一致性边界、版本保留、软删除和终态保留周期 | `DECIDED` | Codex | 2026-09-01 | PG 强一致、Qdrant 最终一致；旧 generation 7 天、终态任务 30 天 |
+| D-007 | ACL 优先级、deny 语义、默认租户/知识库与最终鉴权规则 | `DECIDED` | Codex/安全基线 | 2026-09-01 | `default` tenant/kb，owner + ACL，deny 优先，PG 最终复核 |
+| D-008 | Qdrant、embedding、rerank 故障时的降级模式与用户契约 | `DECIDED` | Codex | 2026-09-01 | FTS-only/degraded、融合回退、鉴权 fail closed |
+| D-009 | PostgreSQL、对象存储和 Qdrant 的 RPO/RTO、备份及跨区要求 | `DEFERRED` | 运维/安全评审 | 2026-09-15 | P4 前不宣称生产灾备；先保证可重建和可清理 |
+| D-010 | 单节点到 Qdrant cluster/Cloud 的切换阈值和生产拓扑 | `DEFERRED` | 运维/架构评审 | 2026-09-15 | 开发/集成单节点；>1M vectors、峰值 QPS 20 或 HA 要求时评估 cluster/Cloud |
 
 ## 5. 风险登记
 
@@ -95,6 +95,7 @@
 | 2026-08-30 | 计划文档与仓库基线验证 | 本地工作区 | 任务/链接/敏感信息检查；后端 test/vet/build；前端 test/lint/build | 文档检查与构建通过；前端默认测试因无测试文件退出 1，使用 `--passWithNoTests` 复核通过；未执行 Qdrant 功能验证 | 本次任务执行记录 |
 | 2026-08-31 | 向量数据库选型迁移 | 本地工作区 | Qdrant 官方术语核对、文档链接和残留引用检查 | 技术方案与 P0-P6 计划已统一为 Qdrant 语义；尚未执行 Qdrant 功能验证 | 本次任务执行记录 |
 | 2026-08-31 | P0-01 基线检查点 | 本地工作区 | `go test ./... -count=1`；`go vet ./...`；`go build ./...`；`npm run lint`；`npm run build`；`git diff --check` | Go/前端基线与文档差异检查通过；Docker CLI 缺失，Compose/Qdrant smoke 未执行 | `00-development-readiness.md` 第 5.1 节 |
+| 2026-09-01 | P0 决策冻结 | 本地工作区 | 决策矩阵、阶段门禁和敏感信息检查；`docker --version`；`docker compose version` | 5 项决定、5 项按日期暂缓；P0 允许进入 P1；Docker CLI 未安装，live smoke 待外部环境 | `00-development-readiness.md` 第 4.1、7 节 |
 
 不在此表粘贴密钥、Token、密码、真实 DSN 或受保护业务数据。长日志保存到受控构建系统，表中只保留摘要和链接。
 
@@ -112,3 +113,4 @@
 | 2026-08-30 | 根据目标架构和当前代码建立 P0-P6 专项阶段、决策、风险、门禁与证据跟踪。 |
 | 2026-08-31 | 将资源中心向量数据库开发文档统一为 Qdrant，更新路径、术语、部署/索引/快照模型和交叉链接。 |
 | 2026-08-31 | 完成 P0-01 静态基线检查点，补充阶段计划、验收命令、待确认决策矩阵和 Docker 环境阻断；P0 仍未通过门禁。 |
+| 2026-09-01 | 冻结 P0 工程决策和暂缓项，P0 通过 P1 前置门，启动 P1；Docker CLI 缺失继续作为 live Qdrant smoke 阻断。 |
