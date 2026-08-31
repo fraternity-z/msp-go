@@ -73,7 +73,7 @@ P4 的威胁建模、指标设计和运行手册草拟可在 P1-P3 并行准备�
 
 ## 4.1 当前执行暂停点
 
-P0 已按可回退工程默认值完成冻结；D-002、D-004、D-005、D-009、D-010 已登记为有复核日期的 `DEFERRED`，不阻止供应商无关的 P1 契约实现，但会阻止相应后续阶段通过。P1 的 migration、ports、配置、adapter、Compose profile 和 API 健康装配已实现并通过 Mock/静态验证；本机没有 Docker CLI，开发 Qdrant live health/schema smoke 需在外部验证环境补做，P2 暂不启动。
+P0 已按可回退工程默认值完成冻结；D-002、D-004、D-005、D-009、D-010 已登记为有复核日期的 `DEFERRED`，不阻止供应商无关的 P1 契约实现，但会阻止相应后续阶段通过。P1 的 migration、ports、配置、adapter、Compose profile 和 API 健康装配已实现并通过 Mock/静态验证；本机 Docker CLI/Compose 可调用，但 Docker Desktop Linux 引擎因 `docker-desktop` WSL 发行版缺失及 `system.vhd` 挂载错误未启动，开发 Qdrant live health/schema smoke 需在修复运行时或外部验证环境补做，P2 暂不启动。
 
 ## 5. 状态与完成规则
 

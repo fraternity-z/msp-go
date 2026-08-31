@@ -20,7 +20,7 @@
 
 ### 资源中心向量检索
 
-- [ ] 按 P0-P6 分阶段接入 Qdrant：P0 已完成，P1 schema/ports/config/adapter/Compose profile 已实现并通过 Mock；M1 仍等待 Docker/Qdrant live smoke，D-002、D-004、D-005、D-009、D-010 按日期暂缓，详见 [专项进度](plans/resource-center-qdrant/PROGRESS.md)。
+- [ ] 按 P0-P6 分阶段接入 Qdrant：P0 已完成，P1 schema/ports/config/adapter/Compose profile 已实现并通过 Mock；Docker CLI/Compose 可调用但 Docker Desktop Linux 引擎因 WSL 运行时错误未启动，M1 仍等待 Docker/Qdrant live smoke，D-002、D-004、D-005、D-009、D-010 按日期暂缓，详见 [专项进度](plans/resource-center-qdrant/PROGRESS.md)。
 
 ### AI 学习闭环
 
