@@ -57,7 +57,7 @@
 - 运行 Compose 配置校验和开发 profile 健康 smoke；不把单节点结果宣称为生产验收。
 - 按仓库规则记录覆盖率并删除临时测试源码和 fixture。
 
-本次已完成的静态/Mock 验证：后端相关包及全量 `go test`、临时 `httptest`（health、API key header、upsert、schema mismatch）、`go vet`、`go build` 和 `git diff --check` 均通过；迁移在隔离 PostgreSQL 临时集群中首次应用和重复执行通过。Docker CLI 已安装且 Compose 插件可调用，但 Docker Desktop Linux 引擎无法启动，因此真实 Compose/Qdrant health smoke 尚未执行。诊断日志显示 `docker-desktop` WSL 发行版不存在，并在挂载 `C:\\Program Files\\WSL\\system.vhd` 时返回 `Wsl/Service/RegisterDistro/CreateVm/MountDisk/HCS/ERROR_NOT_FOUND`。
+本次已完成的静态/Mock 验证：后端相关包及全量 `go test`、临时 `httptest`（health、API key header、upsert、schema mismatch）、`go vet`、`go build`、`docker compose --profile vector config --quiet` 和 `git diff --check` 均通过；迁移在隔离 PostgreSQL 临时集群中首次应用和重复执行通过。Docker CLI 已安装且 Compose 插件可调用，但 Docker Desktop Linux 引擎无法启动，因此真实 Compose/Qdrant health smoke 尚未执行。诊断日志显示 `docker-desktop` WSL 发行版不存在，并在挂载 `C:\\Program Files\\WSL\\system.vhd` 时返回 `Wsl/Service/RegisterDistro/CreateVm/MountDisk/HCS/ERROR_NOT_FOUND`。
 
 ## 6. 阶段退出条件
 
@@ -84,7 +84,7 @@
 | 开始日期 | 2026-09-01 |
 | 完成日期 |  |
 | 验证命令 | `go test ./internal/application/resource ./internal/adapter/qdrant ./internal/platform/config ./internal/platform/health ./cmd/api`；`go test ./... -count=1`；临时 `httptest`；`go vet ./...`；`go build ./...`；前端 `npm run lint`/`npm run build`；`docker compose --profile vector config` |
-| 验证结果 | 相关包/全量测试、临时 adapter smoke、隔离 PostgreSQL 迁移首次/重复执行、`go vet`、`go build` 均通过；Docker CLI/Compose 可调用，但 Docker Desktop Linux 引擎因 WSL 发行版/虚拟磁盘错误未启动，Compose/live Qdrant 尚未执行 |
+| 验证结果 | 相关包/全量测试、临时 adapter smoke、隔离 PostgreSQL 迁移首次/重复执行、`go vet`、`go build`、Compose 配置解析均通过；Docker CLI/Compose 可调用，但 Docker Desktop Linux 引擎因 WSL 发行版/虚拟磁盘错误未启动，live Qdrant 尚未执行 |
 | 覆盖率 | 临时 adapter `httptest` 覆盖率 85.8% statements，覆盖公开操作的成功、边界、旧 API 回退和错误映射；测试源码与 profile 已删除，不纳入仓库 |
 | 交付物 | migration、application ports、Qdrant adapter 骨架、配置、Compose、健康装配和技术文档 |
 | 回滚或降级验证 | `QDRANT_ENABLED=false` 保持旧启动链；健康/管理员状态仅在配置启用时包含 Qdrant；网络失败映射为 degraded |
