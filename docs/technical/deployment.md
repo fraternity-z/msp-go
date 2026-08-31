@@ -2,7 +2,7 @@
 
 ## 部署组成
 
-根目录 `docker-compose.yml` 编排四个服务：
+根目录 `docker-compose.yml` 编排四个默认服务，并提供一个显式 `vector` profile 的 Qdrant 单节点：
 
 | 服务 | 默认实现 | 容器端口 |
 |------|----------|----------|
@@ -10,8 +10,9 @@
 | Redis | `redis:7-alpine` | 6379 |
 | Backend | `backend/Dockerfile` 构建的 Go API | 8000 |
 | Frontend | `frontend/Dockerfile` 构建的 Nginx 静态站点 | 80 |
+| Qdrant（`vector` profile，可选） | `qdrant/qdrant:v1.14.1` | 6333 |
 
-PostgreSQL、Redis、Go API 和前端 `9000` 端口默认只绑定宿主机回环地址。
+PostgreSQL、Redis、Go API、Qdrant 和前端 `9000` 端口默认只绑定宿主机回环地址；Qdrant profile 不会被默认 `docker compose up` 启动。
 
 ## 准备环境
 
@@ -20,6 +21,8 @@ Copy-Item .env.example .env
 ```
 
 使用 Compose 前必须在 `.env` 中显式设置每个环境唯一的随机 `POSTGRES_PASSWORD`；非开发环境会拒绝空值、占位值、与用户名相同或少于 16 字节的密码。生产环境还必须替换 `JWT_SECRET_KEY`、`FERNET_SECRET_KEY`、初始管理员密码、CORS 和管理网段。对象存储后端与云存储凭据不从 `.env` 读取，首次部署后由管理员在“系统设置 > 存储设置”中测试并保存；数据库中的 Access Key 和 Secret Key 使用 `FERNET_SECRET_KEY` 加密，因此该密钥必须稳定保存，不能在重启时轮换或留空。设置 `ENVIRONMENT=production`，不要把开发密钥或真实 `.env` 提交到仓库。启用公众号时还必须按消息模式设置 `WECHAT_OFFICIAL_ACCOUNT_*` 配置；`APP_SECRET`、`TOKEN` 和非明文模式使用的 `AES_KEY` 应由部署密钥系统或权限收紧的 `.env` 提供，不能写入镜像、Compose 文件或版本库。任何凭据出现在截图、日志或聊天记录中都视为泄露，应先在对应供应商控制台轮换再部署。
+
+资源中心向量能力默认关闭。启用时设置 `QDRANT_ENABLED=true`、`QDRANT_URL`、`QDRANT_COLLECTION` 和独立的 `QDRANT_API_KEY`；生产环境没有 API key 时 API 会拒绝启动。Qdrant 只接受 adapter 发出的最小向量/payload，PostgreSQL 仍是资源、版本和权限真相。P1 不会因 Qdrant 运行时不可达而阻断 API，详细健康会显示 `degraded`；collection dimension/metric 必须由后续 embedding generation 显式校验。
 
 对象存储运行配置遵循以下操作契约：
 
@@ -71,6 +74,15 @@ docker compose build
 docker compose up -d postgres redis
 ```
 
+开发或集成环境需要 Qdrant 时单独启用 profile：
+
+```powershell
+docker compose --profile vector up -d qdrant
+docker compose --profile vector ps qdrant
+```
+
+宿主机运行 Go API 使用 `QDRANT_URL=http://localhost:6333`；后端也在 Compose 内运行时使用 `QDRANT_URL=http://qdrant:6333`。停止 Qdrant profile 不会删除 PostgreSQL 数据或资源对象。
+
 数据库健康后执行 Go migration runner，再启动应用服务。仓库仅保留 `scripts/update.sh` 作为已有环境升级入口，不提供首次生产部署脚本。首次部署由运维人员在完成 `.env` 和边缘代理配置后按下述顺序执行；私有 GHCR 包应先使用最小权限凭据登录，Token 不写入配置或日志。
 
 ```bash
@@ -114,11 +126,11 @@ FROM public.go_schema_migrations
 ORDER BY version;
 ```
 
-当前迁移链由 `0001` 至 `0016` 十六个迁移组成。`0005` 至 `0010` 交付每日题、画像、每日题一致性和错题闭环；`0011` 至 `0014` 交付论坛、学习会话模式、首次聊天幂等和 AI 参数默认值；`0015_auth_version` 为账户增加认证版本，使密码和状态变化立即撤销既有令牌；`0016_local_upload_access` 记录本地对象上传者，并为附件和公开资源的对象级授权查询增加索引。
+当前迁移链由 `0001` 至 `0017` 十七个迁移组成。`0005` 至 `0010` 交付每日题、画像、每日题一致性和错题闭环；`0011` 至 `0014` 交付论坛、学习会话模式、首次聊天幂等和 AI 参数默认值；`0015_auth_version` 为账户增加认证版本，使密码和状态变化立即撤销既有令牌；`0016_local_upload_access` 记录本地对象上传者，并为附件和公开资源的对象级授权查询增加索引；`0017_resource_vector_foundation` 交付资源中心租户/知识库、文档版本/chunk、模型版本、generation、job 和可靠 outbox 基础。
 
-全新空库第一次 migration runner 应记录版本 `1` 至 `16`；version 15 数据库只应用 version 16，紧接着重复执行应为 `applied_count=0`。执行任何待应用迁移前都应停止应用写入、完成可恢复备份，并在维护窗口迁移；`0015` 上线时新 API 必须在迁移成功后一次性切换，不能与仍签发无 `auth_version` 令牌的旧实例混跑。迁移完成后所有旧会话都会失效，用户需要重新登录。
+全新空库第一次 migration runner 应记录版本 `1` 至 `17`；version 16 数据库只应用 version 17，紧接着重复执行应为 `applied_count=0`。执行任何待应用迁移前都应停止应用写入、完成可恢复备份，并在维护窗口迁移；`0015` 上线时新 API 必须在迁移成功后一次性切换，不能与仍签发无 `auth_version` 令牌的旧实例混跑。迁移完成后所有旧会话都会失效，用户需要重新登录。
 
-迁移后应确认版本 16 已记录、`users.auth_version` 非空且至少为 1，并确认 `local_upload_objects` 表、资源 URL 索引、六个附件 GIN 索引、论坛结构、错题完整性约束、学习会话模式和首次聊天幂等字段均已生效。迁移不会根据客户端可写的历史引用自动认领对象；缺少可信所有权记录的既有本地文件按设计返回 `404`，只能重新上传或通过单独评审、可审计的数据导入建立所有权，不得通过直接暴露上传目录规避。曾完整执行未发布草稿 version 10 至 13 的本地数据库已经具备部分最终结构，但账本与当前迁移链可能不兼容；禁止删除版本记录后盲目重放，必须先备份、核对最终结构，再按迁移 README 中经过评审的专用校准流程处理。
+迁移后应确认版本 17 已记录、`users.auth_version` 非空且至少为 1，并确认 `tenants`、默认 `knowledge_bases`、`resource_documents`、`document_versions`、`document_chunks`、`embedding_model_versions`、`vector_index_generations`、`resource_processing_jobs` 及 outbox lease 字段均已生效。迁移不会根据客户端可写的历史引用自动认领对象；缺少可信所有权记录的既有本地文件按设计返回 `404`，只能重新上传或通过单独评审、可审计的数据导入建立所有权，不得通过直接暴露上传目录规避。曾完整执行未发布草稿 version 10 至 13 的本地数据库已经具备部分最终结构，但账本与当前迁移链可能不兼容；禁止删除版本记录后盲目重放，必须先备份、核对最终结构，再按迁移 README 中经过评审的专用校准流程处理。
 
 重整前执行过旧开发迁移链的数据库（该旧链也曾占用 `0001` 至 `0015`，但迁移名称和内容不同）不属于可原地升级目标。migration runner 会校验迁移版本、名称和未知记录，并在账本与当前代码不一致时拒绝继续。可丢弃的开发库应删除并重建；任何不可丢弃的库必须先停止发布，完成实际 schema、业务数据和 `go_schema_migrations` 核对，再设计专门的数据保留迁移，禁止删除版本记录后重放基线。
 

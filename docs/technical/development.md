@@ -6,6 +6,7 @@
 - Node.js 20 和 npm
 - PostgreSQL 18 + pgvector
 - Redis 7
+- Qdrant `v1.14.1`（仅在资源中心 vector profile/live smoke 时需要）
 
 版本变化时以 [go.mod](../../backend/go.mod)、[package.json](../../frontend/package.json) 和 [docker-compose.yml](../../docker-compose.yml) 为准。
 
@@ -115,7 +116,7 @@ go run ./cmd/migrate
 go run ./cmd/migrate  # 重复执行应无待应用版本
 ```
 
-当前共享迁移链是 `0001` 至 `0016`。`0005` 至 `0010` 交付每日题、画像、每日题一致性和错题闭环，`0011` 至 `0014` 交付论坛、学习会话模式、首次聊天幂等和 AI 参数默认值，`0015_auth_version` 交付账户级令牌失效，`0016_local_upload_access` 交付本地上传对象归属登记及附件 JSONB 索引。全新数据库首次应记录 version 1 至 16；version 15 数据库只新增 version 16；复跑应无待应用版本。曾执行旧草稿 10 至 13 或旧错题草稿占用 version 11 的本地数据库，必须按 [迁移策略](../../backend/migrations/README.md) 的专用校准流程处理，不能删除账本后重放。runner 会校验数据库中的版本、名称和未知记录；其他旧开发链仍应重建或设计数据保留方案。资源中心 Qdrant 专项的下一条迁移必须在 P0 决策冻结后从 `0017` 开始，详见 [专项进度](../plans/resource-center-qdrant/PROGRESS.md)。
+当前共享迁移链是 `0001` 至 `0017`。`0005` 至 `0010` 交付每日题、画像、每日题一致性和错题闭环，`0011` 至 `0014` 交付论坛、学习会话模式、首次聊天幂等和 AI 参数默认值，`0015_auth_version` 交付账户级令牌失效，`0016_local_upload_access` 交付本地上传对象归属登记及附件 JSONB 索引，`0017_resource_vector_foundation` 交付资源中心租户/知识库、文档版本/chunk、模型版本、generation、job 和可靠 outbox 基础。全新数据库首次应记录 version 1 至 17；version 16 数据库只新增 version 17；复跑应无待应用版本。曾执行旧草稿 10 至 13 或旧错题草稿占用 version 11 的本地数据库，必须按 [迁移策略](../../backend/migrations/README.md) 的专用校准流程处理，不能删除账本后重放。runner 会校验数据库中的版本、名称和未知记录；其他旧开发链仍应重建或设计数据保留方案。资源中心后续迁移从 `0018` 起追加，详见 [专项进度](../plans/resource-center-qdrant/PROGRESS.md)。
 
 ## 环境配置
 
@@ -130,8 +131,20 @@ go run ./cmd/migrate  # 重复执行应无待应用版本
 - 本地存储根目录 `UPLOADS_DIR`；对象存储后端和云存储凭据由管理员保存到数据库，不写入 `.env`
 - 西电账户绑定端点和超时
 - 微信公众号凭据、回调消息模式和外部请求超时
+- Qdrant 仅在启用向量能力时配置：`QDRANT_ENABLED`、`QDRANT_URL`、`QDRANT_API_KEY`、`QDRANT_COLLECTION`、payload index 字段、请求/健康超时、批量大小和 wait-for-changes。开发默认关闭；非开发环境开启时必须提供 API key，日志和错误不得记录 key。
 
 不要提交 `.env`、API key、密码或真实用户数据。
+
+### 本地 Qdrant profile
+
+核心 Compose 栈不会自动启动 Qdrant。需要做 P1 live smoke 时，在根目录执行：
+
+```powershell
+docker compose --profile vector up -d qdrant
+docker compose --profile vector ps qdrant
+```
+
+将后端 `.env` 中的 `QDRANT_ENABLED` 设为 `true`，容器内访问地址使用 `http://qdrant:6333`（宿主机运行 Go API 时使用 `http://localhost:6333`）。P1 adapter 不会在未提供 embedding dimension/metric 时自动创建 collection；collection 的 schema 和 payload index 由后续 generation 建立流程显式校验。停止 profile 使用 `docker compose --profile vector stop qdrant`，不要删除 PostgreSQL 数据卷。
 
 后台 AI provider 的 `base_url` 可以填写纯主机根地址或完整 API base；纯主机地址会自动补 `/v1`，只要地址中已有路径就会原样使用，因此 `/v1`、`/proxy/v1`、`/v1beta/openai` 均不会被重复改写。非流式调用会自动兼容 Chat Completions 与 Responses，推理模型按大小写不敏感的 `gpt-5*`、`o1*`、`o3*`、`o4*` 前缀识别，也兼容 `provider/model` 命名空间，并优先尝试 Responses。连接测试对推理模型使用 `max_completion_tokens=32`，对旧式 Chat provider 保留 `max_tokens=32`。
 
@@ -197,7 +210,7 @@ WECHAT_QA_MESSAGE_TEMPLATE_ID=
 
 若测试号页面没有消息加解密模式选项，使用 `plain`。不要自行编造 `AES_KEY`，兼容模式和安全模式必须使用微信后台对应的 `EncodingAESKey`。
 
-消息中心结构和北京时间默认值由 `backend/migrations/0003_communication.up.sql` 交付，微信公众号绑定和基础提醒任务由 `0004_delivery_integrations.up.sql` 交付；每日一题、画像、每日题一致性和错题闭环由 `0005` 至 `0010` 交付；论坛、学习会话一致性和 AI 参数默认值由 `0011` 至 `0014` 交付；账户级令牌失效由 `0015_auth_version.up.sql` 交付；本地上传对象归属登记和附件 JSONB 索引由 `0016_local_upload_access.up.sql` 交付。全新数据库第一次运行应记录版本 `1` 至 `16`，version 15 数据库应只新增 version 16，第二次运行都应无待应用版本。
+消息中心结构和北京时间默认值由 `backend/migrations/0003_communication.up.sql` 交付，微信公众号绑定和基础提醒任务由 `0004_delivery_integrations.up.sql` 交付；每日一题、画像、每日题一致性和错题闭环由 `0005` 至 `0010` 交付；论坛、学习会话一致性和 AI 参数默认值由 `0011` 至 `0014` 交付；账户级令牌失效由 `0015_auth_version.up.sql` 交付；本地上传对象归属登记和附件 JSONB 索引由 `0016_local_upload_access.up.sql` 交付；资源中心向量基础由 `0017_resource_vector_foundation.up.sql` 交付。全新数据库第一次运行应记录版本 `1` 至 `17`，version 16 数据库应只新增 version 17，第二次运行都应无待应用版本。
 
 ```powershell
 Set-Location backend

@@ -1,6 +1,6 @@
 # 系统架构
 
-本文描述 MathStudyPlatform 当前有效的技术架构。未完成工作见 [项目待办](../TODO.md)，历史时间点资料见 [归档索引](../archive/README.md)。资源中心接入 Qdrant 的拟议目标架构见 [资源中心 PostgreSQL + Qdrant 双数据库方案](resource-center-qdrant-architecture.md)；在方案完成实施和验收前，Qdrant 不属于本页所述当前运行链路。
+本文描述 MathStudyPlatform 当前有效的技术架构。未完成工作见 [项目待办](../TODO.md)，历史时间点资料见 [归档索引](../archive/README.md)。资源中心接入 Qdrant 的完整目标架构见 [资源中心 PostgreSQL + Qdrant 双数据库方案](resource-center-qdrant-architecture.md)。当前 P1 已加入可选 Qdrant adapter 和健康检查，但在 P2/P3 入库与检索验收前，Qdrant 不属于默认业务运行链路。
 
 ## 系统边界
 
@@ -14,6 +14,7 @@ React + Vite/Nginx
 Go net/http API
   |-- PostgreSQL + pgvector
   |-- Redis
+  |-- Optional Qdrant vector index (resource profile)
   |-- Local/Qiniu/S3 storage
   |-- OpenAI-compatible providers through Eino
   `-- Xidian IDS account verification
@@ -29,7 +30,7 @@ Go API 是唯一默认后端。旧 Python FastAPI、LangGraph、LiteLLM、SymPy 
 | 交互与展示 | Framer Motion、KaTeX、ECharts、AntV G6、React Hook Form、Zod |
 | 后端 | Go 1.25、`net/http`、pgx、go-redis |
 | AI/Agent | CloudWeGo Eino、OpenAI-compatible ChatModel、持久化 provider/model/Agent 配置 |
-| 数据 | PostgreSQL 18、pgvector、Redis 7 |
+| 数据 | PostgreSQL 18、pgvector、Redis 7；可选 Qdrant `v1.14.1`（resource profile） |
 | 交付 | Docker、Docker Compose、Nginx、Prometheus text exposition |
 
 具体版本以 [backend/go.mod](../../backend/go.mod) 和 [frontend/package.json](../../frontend/package.json) 为准。
@@ -59,6 +60,7 @@ backend/
 ├── internal/application/       # 用例编排和事务边界
 ├── internal/adapter/http/      # REST/SSE handler、鉴权和错误映射
 ├── internal/adapter/postgres/  # pgx Repository 和读模型
+├── internal/adapter/qdrant/    # Qdrant REST adapter（唯一 provider 边界）
 ├── internal/adapter/llm/       # Eino Agent 适配
 ├── internal/adapter/storage/   # 本地、七牛和 S3 存储
 ├── internal/integration/       # 西电账户验证等外部集成
@@ -66,7 +68,7 @@ backend/
 └── migrations/                 # Go forward migrations
 ```
 
-依赖方向以应用层接口为中心：HTTP 适配器负责协议转换，PostgreSQL、Redis、存储、LLM 和外部服务通过适配器接入，应用服务负责业务规则与事务编排。
+依赖方向以应用层接口为中心：HTTP 适配器负责协议转换，PostgreSQL、Redis、存储、Qdrant、LLM 和外部服务通过适配器接入，应用服务负责业务规则与事务编排。Qdrant client import 只允许出现在 `internal/adapter/qdrant` 和 `cmd` 装配边界；P1 未把 Qdrant 作为业务必需依赖。
 
 | 层 | 负责 | 不负责 |
 |----|------|--------|
@@ -151,4 +153,4 @@ backend/
 
 ## 数据与迁移
 
-PostgreSQL 是业务数据源，Redis 用于缓存和运行时辅助状态。数据库结构由 `backend/migrations/` 中的 Go forward migration 管理；首次生产基线按基础结构、AI 风控、站内通信和外部通知四个领域分组，发布后的变化只追加新版本。历史 Alembic 链和开发期增量链已退出当前工作区。迁移规则见 [Go 数据库迁移策略](../../backend/migrations/README.md)。
+PostgreSQL 是业务、版本和权限数据源，Redis 用于缓存和运行时辅助状态，Qdrant 仅保存可重建的向量和最小 payload。数据库结构由 `backend/migrations/` 中的 Go forward migration 管理；首次生产基线按基础结构、AI 风控、站内通信和外部通知四个领域分组，`0017_resource_vector_foundation` 追加资源中心契约，发布后的变化只追加新版本。历史 Alembic 链和开发期增量链已退出当前工作区。迁移规则见 [Go 数据库迁移策略](../../backend/migrations/README.md)。

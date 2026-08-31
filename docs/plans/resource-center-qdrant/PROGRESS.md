@@ -8,16 +8,16 @@
 
 ## 1. 总体摘要
 
-P0 已完成决策冻结和基线记录，允许进入 P1 的契约实现。五项依赖真实语料、容量或运维责任人的决策按日期暂缓；它们不阻止 P1 的供应商无关骨架，但会阻止对应后续阶段宣告通过。本机缺少 Docker CLI，P1 的 live Qdrant smoke 仍需在具备 Docker 的环境补做。
+P0 已完成决策冻结和基线记录。P1 的 schema、application ports、配置、Qdrant adapter、Compose profile 和 API 装配已实现并完成 Mock/静态验证；五项依赖真实语料、容量或运维责任人的决策按日期暂缓。本机缺少 Docker CLI，P1 的 live Qdrant smoke 仍需在具备 Docker 的环境补做，因此 M1 暂不宣告通过。
 
 | 指标 | 当前值 |
 |---|---:|
 | 总任务 | 88 |
-| 已完成任务 | 14 |
-| 总体进度 | 15.9% |
+| 已完成任务 | 26 |
+| 总体进度 | 29.5% |
 | 开放决策 | 5 |
 | 开放高/严重风险 | 5 |
-| 当前阻断 | 本机 Docker CLI 不可用，无法执行 Compose/Qdrant live smoke；不阻止 P1 Mock/静态契约实现 |
+| 当前阻断 | 本机 Docker CLI 不可用，无法执行 Compose/Qdrant live smoke；P1 实现可审查，但 M1 仍不能通过 |
 
 进度按已完成任务数计算，只用于反映执行量，不代替阶段门禁。阶段未满足退出条件时，即使任务勾选率为 100%，也不能标记 `DONE`。
 
@@ -26,7 +26,7 @@ P0 已完成决策冻结和基线记录，允许进入 P1 的契约实现。五�
 | 阶段 | 状态 | 完成任务 | 依赖 | 里程碑 | 计划结果 |
 |---|---|---:|---|---|---|
 | [P0 开发准备与决策冻结](00-development-readiness.md) | `DONE` | 14/14 | 无 | M0 | 决策、SLO、基线和风险边界冻结 |
-| [P1 数据与契约基础](01-data-and-contract-foundation.md) | `IN_PROGRESS` | 0/12 | P0 | M1 | schema、port、配置和开发 Qdrant 可用 |
+| [P1 数据与契约基础](01-data-and-contract-foundation.md) | `IN_PROGRESS` | 12/12 | P0 | M1 | schema、port、配置和开发 Qdrant 可用；待 live smoke |
 | [P2 入库与向量索引](02-ingestion-and-vector-indexing.md) | `TODO` | 0/14 | P1 | M2 | 文档可异步、幂等地形成可检索向量 |
 | [P3 检索与 RAG 集成](03-retrieval-and-rag-integration.md) | `TODO` | 0/13 | P2 | M3 | 混合检索和 Session RAG MVP 可用 |
 | [P4 生产就绪](04-production-readiness.md) | `TODO` | 0/12 | P3 | M4 | 安全、观测、恢复和生产拓扑通过验收 |
@@ -38,7 +38,7 @@ P0 已完成决策冻结和基线记录，允许进入 P1 的契约实现。五�
 | 里程碑 | 状态 | 通过条件 |
 |---|---|---|
 | M0 决策与基线就绪 | `DONE` | D-001、D-003、D-006、D-007、D-008 已决定；D-002、D-004、D-005、D-009、D-010 已记录合规暂缓和复核日期，代表性基线与威胁边界可供后续复用 |
-| M1 基础契约就绪 | `IN_PROGRESS` | forward migration、application ports、配置校验、Qdrant adapter 骨架和开发健康检查通过 |
+| M1 基础契约就绪 | `IN_PROGRESS` | forward migration、application ports、配置校验、Qdrant adapter 骨架和开发健康检查已静态/Mock 通过；待 Compose/live health/schema smoke |
 | M2 入库索引闭环 | `TODO` | 上传到可检索向量全链路通过，崩溃重试、幂等、删除和对账行为可证明 |
 | M3 MVP 可用 | `TODO` | 混合检索、PostgreSQL 最终鉴权、引用、Session 集成和 FTS 降级通过 |
 | M4 生产就绪 | `TODO` | 生产拓扑、安全审计、告警、备份恢复、重建和故障演练通过 |
@@ -96,15 +96,16 @@ P0 已完成决策冻结和基线记录，允许进入 P1 的契约实现。五�
 | 2026-08-31 | 向量数据库选型迁移 | 本地工作区 | Qdrant 官方术语核对、文档链接和残留引用检查 | 技术方案与 P0-P6 计划已统一为 Qdrant 语义；尚未执行 Qdrant 功能验证 | 本次任务执行记录 |
 | 2026-08-31 | P0-01 基线检查点 | 本地工作区 | `go test ./... -count=1`；`go vet ./...`；`go build ./...`；`npm run lint`；`npm run build`；`git diff --check` | Go/前端基线与文档差异检查通过；Docker CLI 缺失，Compose/Qdrant smoke 未执行 | `00-development-readiness.md` 第 5.1 节 |
 | 2026-09-01 | P0 决策冻结 | 本地工作区 | 决策矩阵、阶段门禁和敏感信息检查；`docker --version`；`docker compose version` | 5 项决定、5 项按日期暂缓；P0 允许进入 P1；Docker CLI 未安装，live smoke 待外部环境 | `00-development-readiness.md` 第 4.1、7 节 |
+| 2026-09-01 | P1 契约实现 | 本地工作区 | 全量 Go test/vet/build、前端 lint/build、隔离 PostgreSQL 迁移首次/重复执行、临时 `httptest` adapter smoke（85.8% statements）、`git diff --check` | migration、ports、配置、adapter、Compose profile 和装配完成；兼容旧 `contents` 写入的默认租户验证通过；Docker CLI 缺失，live smoke 待外部环境 | `01-data-and-contract-foundation.md` 第 8 节 |
 
 不在此表粘贴密钥、Token、密码、真实 DSN 或受保护业务数据。长日志保存到受控构建系统，表中只保留摘要和链接。
 
 ## 8. 近期行动
 
-1. 指定 P0 技术负责人、产品负责人和安全/运维评审人，并逐项确认 D-001～D-010；若暂缓，补充 `DEFERRED` 理由和复核日期。
-2. 提供带 Docker CLI 的验证环境或可访问的隔离 Qdrant 测试实例，完成 Compose、健康检查和可清理 smoke。
+1. 提供带 Docker CLI 的验证环境或可访问的隔离 Qdrant 测试实例，完成 Compose、健康检查、schema、payload index、upsert/delete/search 和可清理 smoke。
+2. 运行 `go vet ./...`、`go build ./...` 及前端 lint/build，确认 P1 提交前的全仓库门禁。
 3. 固定代表性文档语料、查询集和权限矩阵，记录当前 PostgreSQL 搜索与 Session 基线。
-4. P0 退出评审通过后再为 P1 创建开发分支和第一条 forward migration。
+4. 在 live smoke 通过且文档证据补齐后，再开始 P2 worker/入库实现。
 
 ## 9. 更新记录
 
@@ -114,3 +115,4 @@ P0 已完成决策冻结和基线记录，允许进入 P1 的契约实现。五�
 | 2026-08-31 | 将资源中心向量数据库开发文档统一为 Qdrant，更新路径、术语、部署/索引/快照模型和交叉链接。 |
 | 2026-08-31 | 完成 P0-01 静态基线检查点，补充阶段计划、验收命令、待确认决策矩阵和 Docker 环境阻断；P0 仍未通过门禁。 |
 | 2026-09-01 | 冻结 P0 工程决策和暂缓项，P0 通过 P1 前置门，启动 P1；Docker CLI 缺失继续作为 live Qdrant smoke 阻断。 |
+| 2026-09-01 | 完成 P1 基础契约实现和 Mock 验证；M1 保持 `IN_PROGRESS`，等待外部 Docker/Qdrant live smoke 后再决定是否进入 P2。 |

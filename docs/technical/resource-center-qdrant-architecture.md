@@ -1,6 +1,6 @@
 # 资源中心 PostgreSQL + Qdrant 双数据库技术方案
 
-> 状态：拟议目标架构，尚未成为当前运行链路。
+> 状态：目标架构；P1 基础 schema、application ports、Qdrant adapter 和可选健康装配已实现，P2/P3 入库与检索链路尚未验收。
 >
 > 适用范围：仅资源中心的文档知识检索、语义搜索和 RAG。其他业务模块继续只依赖 PostgreSQL、Redis、对象存储及既有应用接口。
 >
@@ -19,7 +19,7 @@
 7. 混合检索的首选实现是 PostgreSQL 全文检索与 Qdrant 向量检索并行，在资源中心检索协调器中使用 RRF 融合。这样不需要在 Qdrant 保存分片原文，保持权责边界。未来若启用 Qdrant sparse/BM25 向量，必须另立 ADR，因为这会扩展 Qdrant 的职责。
 8. 开发和集成测试使用固定版本的 Qdrant 单节点 Docker Compose；生产要求高可用时使用 Qdrant cluster（分片与副本）或 Qdrant Cloud。仅在客户端支持时使用 Qdrant local mode 做本地算法实验，不作为 Go 后端的标准依赖。
 
-这套设计直接复用当前项目的应用层端口、PostgreSQL repository、对象级授权、`FOR UPDATE SKIP LOCKED` 领取、租约、有限重试和 dead 状态模式。
+这套设计直接复用当前项目的应用层端口、PostgreSQL repository、对象级授权、`FOR UPDATE SKIP LOCKED` 领取、租约、有限重试和 dead 状态模式。当前 P1 已先落地 provider-neutral ports、`0017_resource_vector_foundation` 和 `internal/adapter/qdrant` REST 骨架；collection 创建和向量写入仍必须由后续 generation/worker 显式触发。
 
 ## 2. 设计范围与非目标
 

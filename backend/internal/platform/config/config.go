@@ -76,6 +76,16 @@ type Config struct {
 	RedisConnectTimeout       time.Duration
 	RedisFallbackCacheMaxSize int
 
+	QdrantEnabled            bool
+	QdrantURL                string
+	QdrantAPIKey             string
+	QdrantCollection         string
+	QdrantPayloadIndexFields []string
+	QdrantTimeout            time.Duration
+	QdrantHealthTimeout      time.Duration
+	QdrantMaxBatchSize       int
+	QdrantWaitForChanges     bool
+
 	JWTSecretKey          string
 	JWTAlgorithm          string
 	JWTAccessTokenExpire  time.Duration
@@ -194,6 +204,15 @@ func Load() (Config, error) {
 		RedisSocketTimeout:        envSeconds("REDIS_SOCKET_TIMEOUT_SECONDS", 3*time.Second),
 		RedisConnectTimeout:       envSeconds("REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS", 3*time.Second),
 		RedisFallbackCacheMaxSize: envInt("REDIS_FALLBACK_CACHE_MAX_SIZE", 500),
+		QdrantEnabled:             envBool("QDRANT_ENABLED", false),
+		QdrantURL:                 envString("QDRANT_URL", "http://localhost:6333"),
+		QdrantAPIKey:              envString("QDRANT_API_KEY", ""),
+		QdrantCollection:          envString("QDRANT_COLLECTION", "resource_chunks_dense_default_v1"),
+		QdrantPayloadIndexFields:  envList("QDRANT_PAYLOAD_INDEX_FIELDS", []string{"tenant_id", "knowledge_base_id", "resource_id", "generation_id", "visibility"}),
+		QdrantTimeout:             envSeconds("QDRANT_TIMEOUT_SECONDS", 5*time.Second),
+		QdrantHealthTimeout:       envSeconds("QDRANT_HEALTH_TIMEOUT_SECONDS", 3*time.Second),
+		QdrantMaxBatchSize:        envInt("QDRANT_MAX_BATCH_SIZE", 64),
+		QdrantWaitForChanges:      envBool("QDRANT_WAIT_FOR_CHANGES", true),
 		JWTSecretKey:              envString("JWT_SECRET_KEY", defaultJWTSecretKey),
 		JWTAlgorithm:              strings.ToUpper(envString("JWT_ALGORITHM", "HS256")),
 		JWTAccessTokenExpire:      time.Duration(envInt("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", 30)) * time.Minute,
@@ -282,6 +301,9 @@ func Load() (Config, error) {
 	}
 	if cfg.RedisFallbackCacheMaxSize <= 0 {
 		return Config{}, errors.New("REDIS_FALLBACK_CACHE_MAX_SIZE must be greater than 0")
+	}
+	if err := validateQdrantConfig(cfg); err != nil {
+		return Config{}, err
 	}
 	if strings.TrimSpace(cfg.UploadsDir) == "" {
 		return Config{}, errors.New("UPLOADS_DIR must not be empty")
@@ -843,4 +865,71 @@ func validateEinoConfig(cfg Config) error {
 		return errors.New("EINO_MAX_ITERATIONS must be greater than 0 when EINO_ENABLED=true")
 	}
 	return nil
+}
+
+func validateQdrantConfig(cfg Config) error {
+	if !cfg.QdrantEnabled {
+		return nil
+	}
+	parsed, err := url.Parse(strings.TrimSpace(cfg.QdrantURL))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return errors.New("QDRANT_URL must include an http or https scheme and host when QDRANT_ENABLED=true")
+	}
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return errors.New("QDRANT_URL must not contain credentials, query, or fragment when QDRANT_ENABLED=true")
+	}
+	if !validQdrantName(cfg.QdrantCollection) {
+		return errors.New("QDRANT_COLLECTION must use 1 to 255 ASCII letters, digits, dots, underscores, or hyphens")
+	}
+	if cfg.QdrantTimeout <= 0 {
+		return errors.New("QDRANT_TIMEOUT_SECONDS must be greater than 0 when QDRANT_ENABLED=true")
+	}
+	if cfg.QdrantHealthTimeout <= 0 {
+		return errors.New("QDRANT_HEALTH_TIMEOUT_SECONDS must be greater than 0 when QDRANT_ENABLED=true")
+	}
+	if cfg.QdrantMaxBatchSize <= 0 || cfg.QdrantMaxBatchSize > 10000 {
+		return errors.New("QDRANT_MAX_BATCH_SIZE must be between 1 and 10000 when QDRANT_ENABLED=true")
+	}
+	for _, field := range cfg.QdrantPayloadIndexFields {
+		if !validQdrantField(field) {
+			return errors.New("QDRANT_PAYLOAD_INDEX_FIELDS contains an invalid field name")
+		}
+	}
+	if isStrictEnvironment(cfg.Environment) && strings.TrimSpace(cfg.QdrantAPIKey) == "" {
+		return errors.New("QDRANT_API_KEY must not be empty when QDRANT_ENABLED=true outside development")
+	}
+	return nil
+}
+
+func validQdrantName(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "." || value == ".." || len(value) > 255 {
+		return false
+	}
+	for index, char := range value {
+		if index == 0 && !asciiQdrantAlphaNumeric(char) {
+			return false
+		}
+		if !asciiQdrantAlphaNumeric(char) && char != '.' && char != '_' && char != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+func validQdrantField(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "." || value == ".." || len(value) > 255 {
+		return false
+	}
+	for _, char := range value {
+		if !asciiQdrantAlphaNumeric(char) && char != '.' && char != '_' && char != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+func asciiQdrantAlphaNumeric(char rune) bool {
+	return (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9')
 }

@@ -48,6 +48,7 @@ import (
 	moderationadapter "mathstudy/backend/internal/adapter/llm/moderation"
 	openaicompatadapter "mathstudy/backend/internal/adapter/llm/openaicompat"
 	adapterpostgres "mathstudy/backend/internal/adapter/postgres"
+	qdrantadapter "mathstudy/backend/internal/adapter/qdrant"
 	adapterredis "mathstudy/backend/internal/adapter/redis"
 	storageadapter "mathstudy/backend/internal/adapter/storage"
 	adminaiconfigapp "mathstudy/backend/internal/application/adminaiconfig"
@@ -133,6 +134,26 @@ func main() {
 	if err := requireSharedRedis(ctx, cfg, redisClient); err != nil {
 		logger.Error("redis is required for configured shared state", "error", err)
 		os.Exit(1)
+	}
+	var qdrantClient *qdrantadapter.Client
+	var qdrantPinger health.Pinger
+	if cfg.QdrantEnabled {
+		qdrantClient, err = qdrantadapter.New(qdrantadapter.Config{
+			BaseURL:        cfg.QdrantURL,
+			APIKey:         cfg.QdrantAPIKey,
+			Collection:     cfg.QdrantCollection,
+			Timeout:        cfg.QdrantTimeout,
+			HealthTimeout:  cfg.QdrantHealthTimeout,
+			MaxBatchSize:   cfg.QdrantMaxBatchSize,
+			WaitForChanges: cfg.QdrantWaitForChanges,
+			PayloadIndexes: cfg.QdrantPayloadIndexFields,
+		})
+		if err != nil {
+			logger.Error("configure qdrant vector index", "error", err)
+			os.Exit(1)
+		}
+		qdrantPinger = qdrantClient
+		logger.Info("qdrant vector capability enabled")
 	}
 	store := metrics.NewStore(cfg.AppVersion, cfg.Environment)
 	store.SetRuntimeStatsProvider(func() metrics.RuntimeStats {
@@ -744,7 +765,7 @@ func main() {
 		logger.Error("configure admin stats repository", "error", err)
 		os.Exit(1)
 	}
-	adminStatsService, err := adminstatsapp.NewService(adminStatsRepo, adminStatusProvider(dbPool, redisClient))
+	adminStatsService, err := adminstatsapp.NewService(adminStatsRepo, adminStatusProvider(dbPool, redisClient, qdrantPinger))
 	if err != nil {
 		logger.Error("configure admin stats service", "error", err)
 		os.Exit(1)
@@ -960,7 +981,7 @@ func main() {
 
 	checker := health.NewChecker(cfg.AppVersion, dbPool, health.RedisPingerFunc(func(ctx context.Context) error {
 		return redisClient.Ping(ctx).Err()
-	}))
+	}), qdrantPinger)
 
 	handler, err := httpserver.NewHandler(
 		cfg,
@@ -1087,12 +1108,16 @@ func requireSharedRedis(ctx context.Context, cfg config.Config, redisClient *gor
 	return redisClient.Ping(checkCtx).Err()
 }
 
-func adminStatusProvider(dbPool *pgxpool.Pool, redisClient *goredis.Client) adminstatsapp.StatusProviderFunc {
+func adminStatusProvider(dbPool *pgxpool.Pool, redisClient *goredis.Client, optional ...health.Pinger) adminstatsapp.StatusProviderFunc {
 	return func(ctx context.Context) ([]adminstatsapp.ServiceStatus, error) {
-		return []adminstatsapp.ServiceStatus{
+		statuses := []adminstatsapp.ServiceStatus{
 			pingStatus(ctx, "PostgreSQL", func(ctx context.Context) error { return dbPool.Ping(ctx) }),
 			pingStatus(ctx, "Redis", func(ctx context.Context) error { return redisClient.Ping(ctx).Err() }),
-		}, nil
+		}
+		if len(optional) > 0 && optional[0] != nil {
+			statuses = append(statuses, pingStatus(ctx, "Qdrant", optional[0].Ping))
+		}
+		return statuses, nil
 	}
 }
 

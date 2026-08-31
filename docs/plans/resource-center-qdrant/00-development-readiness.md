@@ -36,7 +36,9 @@
 - [x] **P0-13 威胁模型与风险责任人**：完成越权检索、payload 泄露、恶意文档、解析炸弹、SSRF、prompt injection、向量投毒和资源耗尽的责任边界记录，详见风险登记。
 - [x] **P0-14 实施与验证计划**：冻结 P1-P3 的变更顺序、临时测试清理规则、Docker/Qdrant 环境要求、发布/回滚检查点和证据记录方式。
 
-## 3.1 已核对的当前事实（2026-08-31）
+## 3.1 P0 冻结时核对的事实（2026-08-31）
+
+以下表格是 P0 的历史快照；P1 已追加 `0017`、application ports、Qdrant adapter 和可选 Compose profile，当前状态以 [P1 阶段文档](01-data-and-contract-foundation.md) 与 [专项进度](PROGRESS.md) 为准。
 
 | 主题 | 证据文件 | 当前事实与差距 |
 |---|---|---|

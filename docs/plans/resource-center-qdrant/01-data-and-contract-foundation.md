@@ -1,6 +1,6 @@
 # P1 数据与契约基础
 
-> 状态：`TODO`
+> 状态：`IN_PROGRESS`
 > 里程碑：M1 基础契约就绪
 > 前置依赖：[P0 开发准备与决策冻结](00-development-readiness.md) `DONE`
 > 后续阶段：[P2 入库与向量索引](02-ingestion-and-vector-indexing.md)
@@ -23,18 +23,20 @@
 
 ## 3. 工作清单
 
-- [ ] **P1-01 Schema 基线复核**：重新核对最高迁移版本、现有表/枚举/约束和真实数据兼容性，输出迁移影响表。
-- [ ] **P1-02 核心实体迁移**：新增或扩展 `tenants`、`knowledge_bases`、`content_versions`、`document_assets` 等目标实体，保持 `contents` 为内容根。
-- [ ] **P1-03 默认租户与知识库**：为现有数据提供确定性回填和非空约束，明确这只是 MVP 兼容层。
-- [ ] **P1-04 版本与资产约束**：定义不可变版本、checksum、MIME、存储 key、解析状态、当前版本引用和软删除关系。
-- [ ] **P1-05 ACL 基础**：扩展权限主体/范围表达，建立必要索引和最终鉴权所需读模型；实现 D-007 的 MVP 子集。
-- [ ] **P1-06 Embedding 与索引代际**：扩展 `embedding_models`，新增 `vector_index_generations`，约束 provider/revision/dim/metric/active generation。
-- [ ] **P1-07 可靠任务与 outbox**：新增 `resource_processing_jobs`，扩展 `outbox_events` 的 available、claim、lease、heartbeat、dead、error code 和幂等键。
-- [ ] **P1-08 Application ports**：定义对象读取、解析、切块、embedding、vector store、job/outbox、授权和 `KnowledgeRetriever` 的窄接口与错误分类。
-- [ ] **P1-09 配置与启动校验**：加入 Qdrant endpoint、API key/TLS、collection、payload index、超时、批量、worker、模型与降级配置；错误信息不得打印密钥。
-- [ ] **P1-10 Qdrant adapter 骨架**：实现连接、health、vector/payload schema 与 collection 校验和稳定错误映射；禁止自动用错误维度修补既有 collection。
-- [ ] **P1-11 开发 Compose**：以显式 profile 加入 Qdrant 单节点、健康检查、持久卷和资源限制；默认核心栈不被无意改变。
-- [ ] **P1-12 装配与可观测入口**：API 只装配所需 port 和健康状态，Qdrant 不可用时按 D-008 决定启动失败或能力降级，并暴露无敏感信息的状态。
+- [x] **P1-01 Schema 基线复核**：确认最高迁移版本为 `0016`，复用 `contents`、`embedding_models` 和 `outbox_events`，新迁移从 `0017` 追加。
+- [x] **P1-02 核心实体迁移**：`0017_resource_vector_foundation` 新增租户、知识库、文档/版本/资产/chunk、模型版本、generation、manifest 和可靠任务表，保持 `contents` 为内容根。
+- [x] **P1-03 默认租户与知识库**：固定 `default` tenant/kb UUID，现有 `contents` 确定性回填并设置 `tenant_id NOT NULL`；列默认值继续把旧写入链路归入默认租户，同时建立默认 membership。
+- [x] **P1-04 版本与资产约束**：加入 checksum、MIME、对象 URI、解析/索引状态、当前版本外键、chunk 顺序/偏移和软删除约束。
+- [x] **P1-05 ACL 基础**：新增知识库 subject ACL、allow/deny、有效期及查询索引；保留既有 `content_acl` 兼容读取，PG 作为最终鉴权来源。
+- [x] **P1-06 Embedding 与索引代际**：扩展 `embedding_models`，新增不可变 `embedding_model_versions`、`vector_index_generations` 和 `chunk_vector_manifests`，约束 dimension/metric/revision。
+- [x] **P1-07 可靠任务与 outbox**：新增 `resource_processing_jobs`，扩展 `outbox_events` 的 available、lease、heartbeat、dead、error code、最大重试和幂等键。
+- [x] **P1-08 Application ports**：定义对象读取、解析、切块、embedding、vector store、job/outbox、授权和 `KnowledgeRetriever` 的 provider-neutral 窄接口与错误分类。
+- [x] **P1-09 配置与启动校验**：加入 endpoint、API key、collection、payload index、超时、批量、wait-for-changes 和生产环境密钥校验；错误信息不包含密钥。
+- [x] **P1-10 Qdrant adapter 骨架**：实现 REST health、collection/schema 校验、payload index、upsert/delete/search、维度校验和脱敏错误映射；不自动修补错误 schema。
+- [x] **P1-11 开发 Compose**：以 `vector` profile 加入固定版本 Qdrant 单节点、healthcheck、持久卷和资源限制；默认核心栈不依赖该服务。
+- [x] **P1-12 装配与可观测入口**：API 按开关装配 Qdrant，加入详细健康和管理员系统状态；未启用时不创建接口，运行时不可达按 D-008 标为 degraded。
+
+实现说明：P1 只交付契约和连接骨架，不创建未决模型的 collection，也不启动文档处理 worker。`VectorIndex` 位于 application 层，Qdrant HTTP 细节仅存在于 `internal/adapter/qdrant`。
 
 ## 4. 数据与迁移要求
 
@@ -54,6 +56,8 @@
 - 运行后端定向测试、`go test ./... -count=1`、`go vet ./...`、`go build ./...`。
 - 运行 Compose 配置校验和开发 profile 健康 smoke；不把单节点结果宣称为生产验收。
 - 按仓库规则记录覆盖率并删除临时测试源码和 fixture。
+
+本次已完成的静态/Mock 验证：后端相关包及全量 `go test`、临时 `httptest`（health、API key header、upsert、schema mismatch）、`go vet`、`go build` 和 `git diff --check` 均通过；迁移在隔离 PostgreSQL 临时集群中首次应用和重复执行通过。Docker CLI 不可用，因此真实 Compose/Qdrant health smoke 尚未执行。
 
 ## 6. 阶段退出条件
 
@@ -75,13 +79,13 @@
 
 | 字段 | 内容 |
 |---|---|
-| 状态 | `TODO` |
-| 负责人 | 待定 |
-| 开始日期 |  |
+| 状态 | `IN_PROGRESS`（实现完成，待 live smoke 门禁） |
+| 负责人 | Codex |
+| 开始日期 | 2026-09-01 |
 | 完成日期 |  |
-| 验证命令 |  |
-| 验证结果 |  |
-| 覆盖率 |  |
-| 交付物 | migration、ports、repositories、Qdrant adapter 骨架、配置、Compose、技术文档 |
-| 回滚或降级验证 |  |
-| 遗留风险 |  |
+| 验证命令 | `go test ./internal/application/resource ./internal/adapter/qdrant ./internal/platform/config ./internal/platform/health ./cmd/api`；`go test ./... -count=1`；临时 `httptest`；`go vet ./...`；`go build ./...`；前端 `npm run lint`/`npm run build`；`docker compose --profile vector config` |
+| 验证结果 | 相关包/全量测试、临时 adapter smoke、隔离 PostgreSQL 迁移首次/重复执行、`go vet`、`go build` 均通过；Docker CLI 缺失，Compose/live Qdrant 尚未执行 |
+| 覆盖率 | 临时 adapter `httptest` 覆盖率 85.8% statements，覆盖公开操作的成功、边界、旧 API 回退和错误映射；测试源码与 profile 已删除，不纳入仓库 |
+| 交付物 | migration、application ports、Qdrant adapter 骨架、配置、Compose、健康装配和技术文档 |
+| 回滚或降级验证 | `QDRANT_ENABLED=false` 保持旧启动链；健康/管理员状态仅在配置启用时包含 Qdrant；网络失败映射为 degraded |
+| 遗留风险 | 缺少 Docker 环境的 live health/schema smoke；D-002/D-004/D-005/D-009/D-010 仍按 P0 计划暂缓；P2 前不能宣称可检索或质量达标 |

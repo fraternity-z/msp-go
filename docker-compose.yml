@@ -76,6 +76,34 @@ services:
     networks:
       - msp_network
 
+  # Optional single-node vector index for local development and integration
+  # smoke tests. It is profile-gated so the default stack stays unchanged.
+  qdrant:
+    profiles: ["vector"]
+    image: ${QDRANT_IMAGE:-qdrant/qdrant:v1.14.1}
+    container_name: msp_qdrant
+    restart: unless-stopped
+    environment:
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:-}
+    ports:
+      - "127.0.0.1:${QDRANT_PORT:-6333}:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent -H \"api-key: $${QDRANT__SERVICE__API_KEY}\" http://localhost:6333/healthz >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+        reservations:
+          memory: 256M
+    networks:
+      - msp_network
+
   # Go backend service.
   backend:
     image: ${BACKEND_IMAGE:-ghcr.io/fraternity-z/mathstudyplatform-backend}:${IMAGE_VERSION:-latest}
@@ -146,6 +174,8 @@ volumes:
   postgres_data:
     driver: local
   redis_data:
+    driver: local
+  qdrant_data:
     driver: local
 
 networks:

@@ -23,6 +23,7 @@ type Checker struct {
 	version string
 	db      Pinger
 	redis   Pinger
+	qdrant  Pinger
 }
 
 // ComponentStatus describes one health component.
@@ -39,9 +40,15 @@ type DetailedStatus struct {
 	Components map[string]ComponentStatus `json:"components"`
 }
 
-// NewChecker creates a dependency health checker.
-func NewChecker(version string, db Pinger, redis Pinger) Checker {
-	return Checker{version: version, db: db, redis: redis}
+// NewChecker creates a dependency health checker.  The optional fourth
+// dependency keeps existing callers source-compatible while allowing the
+// vector store to be reported when it is enabled.
+func NewChecker(version string, db Pinger, redis Pinger, optional ...Pinger) Checker {
+	var qdrant Pinger
+	if len(optional) > 0 {
+		qdrant = optional[0]
+	}
+	return Checker{version: version, db: db, redis: redis, qdrant: qdrant}
 }
 
 // Simple returns the lightweight health payload.
@@ -60,12 +67,15 @@ func (c Checker) Detailed(ctx context.Context) DetailedStatus {
 	components := map[string]ComponentStatus{
 		"app": {Status: "healthy"},
 	}
-	checks := make([]componentCheck, 0, 2)
+	checks := make([]componentCheck, 0, 3)
 	if c.db != nil {
 		checks = append(checks, componentCheck{name: "postgres", pinger: c.db})
 	}
 	if c.redis != nil {
 		checks = append(checks, componentCheck{name: "redis", pinger: c.redis})
+	}
+	if c.qdrant != nil {
+		checks = append(checks, componentCheck{name: "qdrant", pinger: c.qdrant})
 	}
 
 	results := make(chan componentResult, len(checks))

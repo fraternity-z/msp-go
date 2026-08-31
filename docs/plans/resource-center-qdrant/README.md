@@ -16,20 +16,20 @@
 
 ## 2. 当前基线
 
-截至 2026-08-31，已核对的实现基线如下：
+截至 2026-09-01，已核对的实现基线如下：
 
 | 范围 | 当前事实 | 计划影响 |
 |---|---|---|
 | 资源业务 | `backend/internal/application/resource` 通过 Repository port 承载列表、详情、创建、更新、软删除、收藏和统计 | 延续 application port 模式，不让业务层依赖 Qdrant client |
-| PostgreSQL | `contents` 是内容根，附件位于 `content_assets`，收藏位于 `user_favorites` | 保持 PostgreSQL 为业务与权限唯一真相 |
+| PostgreSQL | `contents` 是内容根，附件位于 `content_assets`，收藏位于 `user_favorites`；`0017` 增加默认租户列并为旧写入保留默认值 | 保持 PostgreSQL 为业务与权限唯一真相 |
 | 发布语义 | 当前教师资源创建后直接写入 `PUBLISHED` | P0 必须决定兼容与迁移策略，目标链路改为异步处理后发布 |
 | ACL | 已有 `content_acl`，当前粒度不足以表达目标租户、知识库、用户/部门/角色组合权限 | MVP 先定义默认租户和默认知识库，最终授权仍由 PostgreSQL 判定 |
-| 向量元数据 | 已有简版 `embedding_models` | 需补 provider/revision/dim/metric 与索引代际契约 |
-| 异步事件 | 已有简版 `outbox_events`，缺少 claim、lease、available、dead 等可靠消费字段 | P1 扩展可靠任务模型，P2 落地 worker、重试和对账 |
-| Qdrant | 当前无 Qdrant adapter、collection 管理或检索调用 | 新增 `backend/internal/adapter/qdrant`，client 不越过 adapter 边界 |
+| 向量元数据 | `0017` 保留并扩展 `embedding_models`，新增不可变 `embedding_model_versions` 与 generation/manifest | P2 在模型决策后建立具体 collection 和索引代际 |
+| 异步事件 | `0017` 新增 `resource_processing_jobs`，并补齐 `outbox_events` claim/lease/available/dead 字段 | P2 落地 worker、重试和对账 |
+| Qdrant | 已有 `internal/adapter/qdrant` REST adapter、health/schema/upsert/delete/search 契约；默认配置关闭 | P1 live smoke 待 Docker 环境，P2 才接入业务写入 |
 | Worker | 当前没有 `backend/cmd/vector-worker` | P2 新建独立进程并复用现有优雅停止模式 |
 | 会话 | `backend/internal/application/session` 已通过 `ChatAgent` port 接入 AI，并有上下文预算 | P3 新增窄 `KnowledgeRetriever` port，由 composition root 注入 |
-| 开发部署 | `docker-compose.yml` 当前只有 PostgreSQL、Redis、backend、frontend | P1 以开发 profile 增加 Qdrant 单节点依赖，生产按需升级为 cluster/Cloud |
+| 开发部署 | `docker-compose.yml` 默认仍为 PostgreSQL、Redis、backend、frontend，新增 `vector` profile Qdrant 单节点 | P1 live smoke 使用 profile，生产按需升级为 cluster/Cloud |
 
 ## 3.1 本次执行的阶段计划与验收输出
 
@@ -73,7 +73,7 @@ P4 的威胁建模、指标设计和运行手册草拟可在 P1-P3 并行准备�
 
 ## 4.1 当前执行暂停点
 
-P0 已按可回退工程默认值完成冻结；D-002、D-004、D-005、D-009、D-010 已登记为有复核日期的 `DEFERRED`，不阻止供应商无关的 P1 契约实现，但会阻止相应后续阶段通过。P1 已启动，先交付 migration、ports、配置和 adapter 边界；本机没有 Docker CLI，开发 Qdrant live health smoke 需在外部验证环境补做。
+P0 已按可回退工程默认值完成冻结；D-002、D-004、D-005、D-009、D-010 已登记为有复核日期的 `DEFERRED`，不阻止供应商无关的 P1 契约实现，但会阻止相应后续阶段通过。P1 的 migration、ports、配置、adapter、Compose profile 和 API 健康装配已实现并通过 Mock/静态验证；本机没有 Docker CLI，开发 Qdrant live health/schema smoke 需在外部验证环境补做，P2 暂不启动。
 
 ## 5. 状态与完成规则
 

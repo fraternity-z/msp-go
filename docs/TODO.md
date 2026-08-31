@@ -2,7 +2,7 @@
 
 本文是仓库唯一的当前待办清单。技术文档和历史记录只引用这里，不再维护独立路线图。
 
-**更新时间**：2026-08-31
+**更新时间**：2026-09-01
 
 ## 优先级说明
 
@@ -20,7 +20,7 @@
 
 ### 资源中心向量检索
 
-- [ ] 按 P0-P6 分阶段接入 Qdrant：P0 决策与基线已完成，P1 数据/契约基础已启动；D-002、D-004、D-005、D-009、D-010 按日期暂缓，Docker/Qdrant live smoke 仍待可运行环境，详见 [专项进度](plans/resource-center-qdrant/PROGRESS.md)。
+- [ ] 按 P0-P6 分阶段接入 Qdrant：P0 已完成，P1 schema/ports/config/adapter/Compose profile 已实现并通过 Mock；M1 仍等待 Docker/Qdrant live smoke，D-002、D-004、D-005、D-009、D-010 按日期暂缓，详见 [专项进度](plans/resource-center-qdrant/PROGRESS.md)。
 
 ### AI 学习闭环
 
@@ -75,7 +75,7 @@
 - [x] 2026-07-28 删除阻碍目录统一命名的空上传遗留目录，并将 Go 服务统一到 `backend/`。
 - [x] 2026-08-30 将 `go.mod`、后端 Docker builder、README 和开发指南统一为 Go 1.25.13；Go 自动工具链与 Docker Hub `golang:1.25.13-alpine` 标签可用，升级后的 `govulncheck` 未发现可达漏洞。临时 JWT 与切片工具测试分别达到 93.5% 和 100% statements，受影响包及全量 Go 测试、`go vet`、Go 构建、排除 Style 规则的 `staticcheck`、前端 lint 与生产构建通过，临时测试源码已删除。
 - [ ] 补充数据库 Schema 和关键读模型说明，避免依赖超长迁移记录理解当前结构。
-- [x] 2026-08-31 校准开发指南迁移范围：已更新为 `0001` 至 `0016`，后续资源中心迁移从 `0017` 开始。
+- [x] 2026-09-01 校准开发指南迁移范围：已更新为 `0001` 至 `0017`，资源中心基础迁移已交付，后续资源中心迁移从 `0018` 开始。
 - [ ] 将 `backend-python-to-go-refactor.md` 明确归档或更新其中过期的 P0/P4/P6/P7 状态和 Tutor 流式待办，保持本文为唯一当前待办清单。
 
 ### 性能与可维护性治理
