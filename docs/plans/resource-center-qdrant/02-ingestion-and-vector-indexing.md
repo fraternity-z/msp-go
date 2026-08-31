@@ -14,7 +14,7 @@
 ```text
 上传/登记 -> DRAFT/PROCESSING -> content_version + asset + outbox
 -> processing job -> 读取对象 -> 解析 -> 规范化 -> 切块
--> embedding -> Milvus deterministic upsert -> PostgreSQL 发布/失败状态
+-> embedding -> Qdrant deterministic point upsert -> PostgreSQL 发布/失败状态
 -> reconcile 持续校正
 ```
 
@@ -25,7 +25,7 @@
 - `backend/internal/adapter/storage/` 与上传模块：受控对象读取和元数据校验。
 - 文档解析 adapter：PDF、DOCX、TXT、MD 解析及资源限制。
 - embedding adapter：D-002 确认的 provider 和批量契约。
-- `backend/internal/adapter/milvus/`：collection ensure、upsert、delete 和 generation 写入。
+- `backend/internal/adapter/qdrant/`：collection/payload index ensure、point upsert、delete 和 generation 写入。
 - `backend/cmd/vector-worker/`：独立 worker 进程、健康检查和优雅停止。
 - 资源 HTTP/前端：202、处理状态、失败原因、重试和下线展示。
 
@@ -40,20 +40,20 @@
 - [ ] **P2-07 文本规范化**：统一换行、Unicode、控制字符、空白和 checksum；保留可追溯页码/段落/标题元数据。
 - [ ] **P2-08 确定性切块**：实现稳定 chunk 顺序、边界、重叠、邻接关系和 deterministic chunk ID，同一版本重跑结果一致。
 - [ ] **P2-09 Embedding 批处理**：实现批量、超时、取消、有限重试、维度校验、速率/成本限制和脱敏错误。
-- [ ] **P2-10 Collection 与 generation 写入**：校验 schema 后写入目标 generation；维度、metric、模型 revision 不一致时失败关闭。
-- [ ] **P2-11 幂等 upsert**：以版本/generation/chunk 标识覆盖写入；重复 outbox、重复 job 和崩溃重放不增加重复向量。
+- [ ] **P2-10 Collection 与 generation 写入**：校验 vector config、payload index 和目标 generation；维度、metric、模型 revision 不一致时失败关闭。
+- [ ] **P2-11 幂等 upsert**：以确定性 point ID 和版本/generation/chunk payload 覆盖写入；重复 outbox、重复 job 和崩溃重放不增加重复 point。
 - [ ] **P2-12 发布、下线与删除**：只有完整 generation 可发布；下线/删除先更新 PostgreSQL 真相，再异步清理向量，读侧立即以 PostgreSQL 拒绝。
 - [ ] **P2-13 重试、dead 与背压**：区分可重试/永久错误，使用有限退避、available time、dead 状态、队列上限和告警，禁止无限热循环。
-- [ ] **P2-14 Reconcile 与重建**：实现 PostgreSQL 到 Milvus 的差异扫描、缺失/多余向量修复、generation 重建、进度游标和可重复运维命令。
+- [ ] **P2-14 Reconcile 与重建**：通过 point ID、payload 和 count 实现 PostgreSQL 到 Qdrant 的差异扫描、缺失/多余 point 修复、generation 重建、进度游标和可重复运维命令。
 
 ## 4. 关键不变量
 
-1. PostgreSQL 未发布、已下线或已删除的版本，即使 Milvus 仍有向量也不可被用户读取。
+1. PostgreSQL 未发布、已下线或已删除的版本，即使 Qdrant 仍有向量也不可被用户读取。
 2. 同一 `content_version + generation + chunk_ordinal` 只能对应一个确定性 chunk 标识。
 3. job 成功只能发生在全部 chunk 向量写入并校验完成后。
 4. job 失败不能把部分 generation 切换为 active。
 5. 进程在每个外部副作用前后退出，下一次运行都能重试或对账收敛。
-6. 原文、密钥和完整 provider 响应不写入任务错误、日志或 Milvus scalar 字段。
+6. 原文、密钥和完整 provider 响应不写入任务错误、日志或 Qdrant payload。
 7. 删除向量失败不回滚 PostgreSQL 下线；读侧依赖最终鉴权保证立即不可见。
 
 ## 5. 故障注入矩阵
@@ -64,9 +64,9 @@
 | outbox 已提交、worker 未领取 | 后续轮询可领取 |
 | 领取后解析前退出 | lease 到期后可接管 |
 | embedding 部分批次失败 | 不发布，按错误类型重试或 dead |
-| Milvus upsert 成功、job 完成前退出 | 重放 deterministic upsert，无重复向量 |
+| Qdrant upsert 成功、job 完成前退出 | 重放 deterministic upsert，无重复向量 |
 | generation 写完、切换前退出 | 旧 generation 继续服务，重放可完成切换 |
-| PostgreSQL 已下线、Milvus 删除失败 | 用户立即不可见，清理任务继续重试 |
+| PostgreSQL 已下线、Qdrant 删除失败 | 用户立即不可见，清理任务继续重试 |
 | reconcile 中断 | 从持久游标或幂等扫描继续 |
 
 ## 6. 验证计划
@@ -74,8 +74,8 @@
 - 临时 application 测试覆盖公开状态机、边界、错误和取消，外部依赖全部使用 Mock。
 - 临时 PostgreSQL 集成测试覆盖登记事务、并发领取、租约接管、owner 条件更新、重试、dead 和 outbox 幂等。
 - 临时解析测试使用最小安全 fixture 覆盖四种 MIME、空/畸形/超限文件，验证后删除 fixture。
-- 临时 Milvus 集成测试覆盖重复 upsert、generation 隔离、删除、schema/维度错误和 reconcile。
-- 以故障注入运行上表每个关键点，并记录最终 PostgreSQL/Milvus 状态。
+- 临时 Qdrant 集成测试覆盖重复 upsert、generation payload 过滤、删除、vector config/payload index 错误和 reconcile。
+- 以故障注入运行上表每个关键点，并记录最终 PostgreSQL/Qdrant 状态。
 - 核心新增公开逻辑覆盖率目标 80% 以上；记录后删除临时测试源码。
 - 运行全量后端测试、vet、build，前端 lint/build，以及 worker/Compose smoke。
 
@@ -102,4 +102,3 @@
 | 交付物 | 异步 API、worker、解析/切块/embedding/vector adapters、状态机、reconcile、前端状态 |
 | 回滚或降级验证 |  |
 | 遗留风险 |  |
-

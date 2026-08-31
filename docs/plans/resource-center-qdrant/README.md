@@ -1,15 +1,15 @@
-# 资源中心 Milvus 专项开发计划
+# 资源中心 Qdrant 专项开发计划
 
 > 状态：`TODO`
 > 建立日期：2026-08-30
-> 目标架构：[资源中心 PostgreSQL + Milvus 双数据库方案](../../technical/resource-center-milvus-architecture.md)
+> 目标架构：[资源中心 PostgreSQL + Qdrant 双数据库方案](../../technical/resource-center-qdrant-architecture.md)
 > 专项总跟踪：[PROGRESS.md](PROGRESS.md)
 
 ## 1. 文档定位
 
 本目录把目标架构拆成可执行、可验收、可回退的开发阶段。目标架构文档负责说明最终设计，本目录负责回答“先做什么、做到什么算完成、证据记录在哪里”。
 
-项目级未完成事项仍以 [项目待办](../../TODO.md) 为唯一总入口。本目录只跟踪资源中心 Milvus 专项，不复制其他模块待办；专项里程碑变化时，应在项目待办保留一条摘要并链接到 `PROGRESS.md`。
+项目级未完成事项仍以 [项目待办](../../TODO.md) 为唯一总入口。本目录只跟踪资源中心 Qdrant 专项，不复制其他模块待办；专项里程碑变化时，应在项目待办保留一条摘要并链接到 `PROGRESS.md`。
 
 当前代码事实以磁盘中的最新实现为准。目标架构与当前实现不一致时，不把目标设计误写成已上线能力。
 
@@ -19,16 +19,16 @@
 
 | 范围 | 当前事实 | 计划影响 |
 |---|---|---|
-| 资源业务 | `backend/internal/application/resource` 通过 Repository port 承载列表、详情、创建、更新、软删除、收藏和统计 | 延续 application port 模式，不让业务层依赖 Milvus SDK |
+| 资源业务 | `backend/internal/application/resource` 通过 Repository port 承载列表、详情、创建、更新、软删除、收藏和统计 | 延续 application port 模式，不让业务层依赖 Qdrant client |
 | PostgreSQL | `contents` 是内容根，附件位于 `content_assets`，收藏位于 `user_favorites` | 保持 PostgreSQL 为业务与权限唯一真相 |
 | 发布语义 | 当前教师资源创建后直接写入 `PUBLISHED` | P0 必须决定兼容与迁移策略，目标链路改为异步处理后发布 |
 | ACL | 已有 `content_acl`，当前粒度不足以表达目标租户、知识库、用户/部门/角色组合权限 | MVP 先定义默认租户和默认知识库，最终授权仍由 PostgreSQL 判定 |
 | 向量元数据 | 已有简版 `embedding_models` | 需补 provider/revision/dim/metric 与索引代际契约 |
 | 异步事件 | 已有简版 `outbox_events`，缺少 claim、lease、available、dead 等可靠消费字段 | P1 扩展可靠任务模型，P2 落地 worker、重试和对账 |
-| Milvus | 当前无 Milvus adapter、collection 管理或检索调用 | 新增 `backend/internal/adapter/milvus`，SDK 不越过 adapter 边界 |
+| Qdrant | 当前无 Qdrant adapter、collection 管理或检索调用 | 新增 `backend/internal/adapter/qdrant`，client 不越过 adapter 边界 |
 | Worker | 当前没有 `backend/cmd/vector-worker` | P2 新建独立进程并复用现有优雅停止模式 |
 | 会话 | `backend/internal/application/session` 已通过 `ChatAgent` port 接入 AI，并有上下文预算 | P3 新增窄 `KnowledgeRetriever` port，由 composition root 注入 |
-| 开发部署 | `docker-compose.yml` 当前只有 PostgreSQL、Redis、backend、frontend | P1 以开发 profile 增加 Milvus Standalone 依赖，生产不得沿用 Standalone |
+| 开发部署 | `docker-compose.yml` 当前只有 PostgreSQL、Redis、backend、frontend | P1 以开发 profile 增加 Qdrant 单节点依赖，生产按需升级为 cluster/Cloud |
 
 ## 3. 阶段拆分
 
@@ -37,7 +37,7 @@
 | 专项阶段 | 工作文档 | 对应目标架构 | 结果 |
 |---|---|---|---|
 | P0 开发准备与决策冻结 | [00-development-readiness.md](00-development-readiness.md) | 开发前必须确认的决策 | 冻结范围、SLO、模型、ACL、降级和运维边界 |
-| P1 数据与契约基础 | [01-data-and-contract-foundation.md](01-data-and-contract-foundation.md) | MVP 基础部分 | 完成 schema、port、配置、Milvus adapter 骨架和开发环境 |
+| P1 数据与契约基础 | [01-data-and-contract-foundation.md](01-data-and-contract-foundation.md) | MVP 基础部分 | 完成 schema、port、配置、Qdrant adapter 骨架、payload index 和开发环境 |
 | P2 入库与向量索引 | [02-ingestion-and-vector-indexing.md](02-ingestion-and-vector-indexing.md) | MVP 入库链路 | 完成上传、解析、切块、嵌入、幂等写入、重试和对账 |
 | P3 检索与 RAG 集成 | [03-retrieval-and-rag-integration.md](03-retrieval-and-rag-integration.md) | MVP 检索链路 | 完成混合检索、最终鉴权、引用和 Session 集成，形成 MVP |
 | P4 生产就绪 | [04-production-readiness.md](04-production-readiness.md) | 生产化阶段 | 完成生产拓扑、安全、观测、备份、恢复和故障演练 |
@@ -104,4 +104,3 @@ P4 的威胁建模、指标设计和运行手册草拟可在 P1-P3 并行准备�
 回滚或降级验证：
 遗留风险：
 ```
-

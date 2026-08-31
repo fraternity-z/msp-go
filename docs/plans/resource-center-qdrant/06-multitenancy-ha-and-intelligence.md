@@ -15,10 +15,10 @@ P6 的高级能力不得削弱 P3 已证明的 PostgreSQL 最终鉴权和 P4 的
 - [ ] **P6-01 租户领域模型**：建立 tenant、membership、department/role 等正式模型，迁移默认租户数据并定义生命周期。
 - [ ] **P6-02 PostgreSQL RLS/授权**：在 application 授权之外按批准范围加入 RLS、约束和审计，明确服务账号与运维例外。
 - [ ] **P6-03 组合 ACL**：实现用户、部门、角色、资源、知识库、allow/deny 优先级和继承，形成可解释授权结果。
-- [ ] **P6-04 Tenant placement**：按规模/合规将租户映射到共享 partition、独立 collection 或独立集群，支持受控迁移。
+- [ ] **P6-04 Tenant placement**：按规模/合规将租户映射到共享 collection + payload filter、custom shard key、独立 collection 或独立集群，支持受控迁移。
 - [ ] **P6-05 配额与资源治理**：限制租户存储、文档、chunk、QPS、embedding/rerank 成本、并发和重建资源。
-- [ ] **P6-06 多租户隔离验证**：覆盖 API、任务、Milvus filter、cache、reconcile、日志、备份、恢复和运维工具的跨租户负向测试。
-- [ ] **P6-07 跨可用区高可用**：验证 PostgreSQL、对象存储、Milvus、worker 和 API 的故障转移、数据一致性与容量。
+- [ ] **P6-06 多租户隔离验证**：覆盖 API、任务、Qdrant payload filter/shard key、cache、reconcile、日志、snapshot、恢复和运维工具的跨租户负向测试。
+- [ ] **P6-07 跨可用区高可用**：验证 PostgreSQL、对象存储、Qdrant、worker 和 API 的故障转移、数据一致性与容量。
 - [ ] **P6-08 跨区域容灾**：按 D-009 实现复制/备份、灾难恢复、DNS/流量切换、回切和定期演练。
 - [ ] **P6-09 多语言检索**：引入语言识别、适配 embedding/分词和跨语言评测，保证引用原文可追溯。
 - [ ] **P6-10 高级文本检索**：实现父子 chunk、query expansion、adaptive TopK 和邻接策略，并通过固定评测证明增益。
@@ -29,7 +29,7 @@ P6 的高级能力不得削弱 P3 已证明的 PostgreSQL 最终鉴权和 P4 的
 
 1. tenant ID 必须来自已认证主体或受控服务上下文，不接受用户用请求字段任意覆盖。
 2. PostgreSQL 最终鉴权必须同时验证 tenant、knowledge base、resource/version 状态和组合 ACL。
-3. Milvus partition/collection 只提供物理或性能隔离，不能替代最终授权。
+3. Qdrant payload filter、custom shard key 或 collection 只提供逻辑、物理或性能隔离，不能替代最终授权。
 4. cache、job、outbox、idempotency key、generation、指标和备份均包含明确 tenant 边界。
 5. 运维跨租户操作必须显式、最小范围、可审计，并支持 dry-run 和二次确认。
 6. 独立 collection/集群迁移期间不得产生双边均 active 的未授权窗口。
@@ -49,7 +49,7 @@ P6 的高级能力不得削弱 P3 已证明的 PostgreSQL 最终鉴权和 P4 的
 
 - 建立包含多租户、部门、角色、allow/deny、停用用户和资源状态的组合权限矩阵。
 - 使用临时测试覆盖所有公开授权函数、边界和错误；外部依赖使用 Mock，核心逻辑覆盖率 80% 以上。
-- 在真实 PostgreSQL/Milvus 隔离环境执行跨租户负向集成测试，验证 cache 和运维工具。
+- 在真实 PostgreSQL/Qdrant 隔离环境执行跨租户负向集成测试，验证 payload filter、shard key、cache、snapshot 和运维工具。
 - 执行跨可用区/跨区域故障、恢复、回切和 tenant placement 迁移演练，记录实际 RPO/RTO。
 - 为每项高级检索能力单独做 A/B 离线评测，只有质量增益超过成本/延迟门槛才启用。
 - 模型升级按 shadow、双索引、灰度、切换、回滚、清理完整执行一次。
@@ -58,7 +58,7 @@ P6 的高级能力不得削弱 P3 已证明的 PostgreSQL 最终鉴权和 P4 的
 ## 6. 阶段退出条件
 
 - 组合权限与 RLS 策略通过全矩阵，无跨租户数据、向量、缓存或日志泄露。
-- 共享、独立 collection 和独立集群 placement 均有明确阈值与迁移工具。
+- 共享 collection、custom shard key、独立 collection 和独立集群 placement 均有明确阈值与迁移工具。
 - 跨可用区/区域演练达到 D-009 的 RPO/RTO，并完成回切。
 - 多语言、父子、query expansion、自适应 TopK 或多模态能力各自达到批准的质量/成本门槛。
 - embedding/model 升级可 shadow、灰度、切换、回滚和对账，旧代清理有保护。
@@ -78,4 +78,3 @@ P6 的高级能力不得削弱 P3 已证明的 PostgreSQL 最终鉴权和 P4 的
 | 交付物 | 租户/ACL/RLS、placement、配额、HA/DR、高级检索、模型升级工具与文档 |
 | 回滚或降级验证 |  |
 | 遗留风险 |  |
-

@@ -12,9 +12,9 @@
 ## 2. 工作清单
 
 - [ ] **P5-01 代表性数据固化**：冻结文档类型、长度、语言、权限分布、更新率、查询分布和无答案样本，记录版本与 checksum。
-- [ ] **P5-02 索引对比**：在目标 Milvus 版本支持范围内比较 HNSW、IVF 系列及适用候选，记录 build time、memory、disk、Recall 和 latency。
-- [ ] **P5-03 Collection/partition/replica 调优**：验证共享粒度、segment、partition、replica、load/release 和 compaction 对性能与隔离的影响。
-- [ ] **P5-04 入库批处理调优**：优化解析并发、embedding batch、Milvus insert/upsert batch、backpressure 和重建速率，限制对在线检索的影响。
+- [ ] **P5-02 索引对比**：在目标 Qdrant 版本支持范围内比较 HNSW、scalar/product/binary quantization、on-disk vectors/payload 和 sparse index，记录 build time、memory、disk、Recall 和 latency。
+- [ ] **P5-03 Collection/shard/replica 调优**：验证共享粒度、payload index、shard、replication factor、optimizer/segment 和 cache 对性能与隔离的影响。
+- [ ] **P5-04 入库批处理调优**：优化解析并发、embedding batch、Qdrant upsert batch、wait/ordering、backpressure 和重建速率，限制对在线检索的影响。
 - [ ] **P5-05 缓存与预加载**：评估 embedding/query、授权候选、资源元数据和邻接 chunk 缓存；缓存键必须包含权限与 generation 边界。
 - [ ] **P5-06 切块实验**：比较 chunk 大小、重叠、标题/页码结构、父子关系对 Recall、引用和 token 成本的影响。
 - [ ] **P5-07 召回融合调优**：调整 FTS/向量 TopK、RRF 常数、来源权重、阈值和去重，防止只优化单一离线指标。
@@ -37,8 +37,8 @@
 | 类别 | 必须记录 |
 |---|---|
 | 数据 | 文档、版本、chunk、向量数量，长度/类型/权限分布 |
-| 环境 | Milvus/SDK/Go 版本、节点规格、replica、网络和存储 |
-| 索引 | 类型、参数、build/load 时间、内存、磁盘、compaction |
+| 环境 | Qdrant/client/Go 版本、节点规格、shard、replication factor、网络和存储 |
+| 索引 | 类型、HNSW/量化参数、payload index、build/optimizer 时间、内存、磁盘 |
 | 查询 | 并发、QPS、P50/P95/P99、timeout、error、degrade |
 | 质量 | Recall@K、MRR/nDCG、引用正确率、无答案和权限通过率 |
 | 入库 | 文档/分钟、chunk/秒、embedding 成本、backlog age、失败率 |
@@ -49,14 +49,14 @@
 - 使用版本化评测数据和可重复命令生成结果；数据含敏感内容时只保存受控位置和匿名摘要。
 - 临时 benchmark/测试源码在记录结果后删除，不进入提交。
 - 执行在线检索与后台重建混合负载，验证对 API 和 worker 的相互影响。
-- 在缓存启用/禁用、rerank 启用/禁用、Milvus 降级三种模式下重复质量与性能检查。
+- 在缓存启用/禁用、rerank 启用/禁用、Qdrant 降级三种模式下重复质量与性能检查，并覆盖 payload filter 选择性和 snapshot 恢复后的冷启动。
 - 进行至少一次达到目标时长的 soak，检查内存、连接、segment、任务和错误累积。
 - 参数发布使用 generation 蓝绿流程并验证回滚。
 
 ## 6. 阶段退出条件
 
 - 固定数据与查询集下达到 D-004、D-005 的全部门槛。
-- 选定索引、collection、replica、批处理和缓存参数均有可重复证据。
+- 选定索引、量化、collection、shard/replication、批处理和缓存参数均有可重复证据。
 - 混合负载和 soak 无持续资源泄漏、backlog 失控或权限缓存串扰。
 - 质量报告能阻止明显相关性、引用、无答案和权限回归。
 - 每项优化都有适用范围、监控指标和回滚阈值。
@@ -75,4 +75,3 @@
 | 交付物 | benchmark、评测报告、参数决策、配置、质量门禁、运行手册更新 |
 | 回滚验证 |  |
 | 遗留风险 |  |
-
