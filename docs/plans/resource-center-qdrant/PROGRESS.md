@@ -1,14 +1,14 @@
 # 资源中心 Qdrant 专项总进度
 
 > 专项状态：`IN_PROGRESS`
-> 当前阶段：P1 数据与契约基础
-> 当前里程碑：M1 基础契约就绪
+> 当前阶段：P2 入库与向量索引（待 D-002 决策）
+> 当前里程碑：M2 入库索引闭环
 > 最后更新：2026-09-01
 > 维护入口：[目录说明](README.md)
 
 ## 1. 总体摘要
 
-P0 已完成决策冻结和基线记录。P1 的 schema、application ports、配置、Qdrant adapter、Compose profile 和 API 装配已实现并完成 Mock/静态验证；五项依赖真实语料、容量或运维责任人的决策按日期暂缓。本机 Docker CLI/Compose 插件可调用，但 Docker Desktop Linux 引擎无法启动，P1 的 live Qdrant smoke 仍需在修复宿主机运行时或具备可用 Docker 的环境补做，因此 M1 暂不宣告通过。
+P0 已完成决策冻结和基线记录。P1 的 schema、application ports、配置、Qdrant adapter、Compose profile 和 API 装配已实现，并通过 Mock、静态、迁移及真实 Qdrant smoke；无鉴权开发模式和随机临时 API key 鉴权模式均完成 schema、payload index、幂等写入、过滤检索、负向校验、删除与清理，M1 已通过。五项依赖真实模型、语料、容量或运维责任人的决策仍按日期暂缓；进入 P2 前需要先关闭 D-002，冻结实际 embedding 契约。
 
 | 指标 | 当前值 |
 |---|---:|
@@ -17,7 +17,7 @@ P0 已完成决策冻结和基线记录。P1 的 schema、application ports、�
 | 总体进度 | 29.5% |
 | 开放决策 | 5 |
 | 开放高/严重风险 | 5 |
-| 当前阻断 | Docker Desktop Linux 引擎无法启动（`docker-desktop` WSL 发行版不存在，挂载 `C:\\Program Files\\WSL\\system.vhd` 返回 `ERROR_NOT_FOUND`），无法执行 Compose/Qdrant live smoke；P1 实现可审查，但 M1 仍不能通过 |
+| 当前阻断 | D-002 尚未确认 embedding provider、model、revision、dimension、metric、费用与数据合规边界；该选择会决定 P2 的 collection schema 和真实向量生成，不能由实现阶段静默假设 |
 
 进度按已完成任务数计算，只用于反映执行量，不代替阶段门禁。阶段未满足退出条件时，即使任务勾选率为 100%，也不能标记 `DONE`。
 
@@ -26,7 +26,7 @@ P0 已完成决策冻结和基线记录。P1 的 schema、application ports、�
 | 阶段 | 状态 | 完成任务 | 依赖 | 里程碑 | 计划结果 |
 |---|---|---:|---|---|---|
 | [P0 开发准备与决策冻结](00-development-readiness.md) | `DONE` | 14/14 | 无 | M0 | 决策、SLO、基线和风险边界冻结 |
-| [P1 数据与契约基础](01-data-and-contract-foundation.md) | `IN_PROGRESS` | 12/12 | P0 | M1 | schema、port、配置和开发 Qdrant 可用；待 live smoke |
+| [P1 数据与契约基础](01-data-and-contract-foundation.md) | `DONE` | 12/12 | P0 | M1 | schema、port、配置和开发 Qdrant 已通过实机验证 |
 | [P2 入库与向量索引](02-ingestion-and-vector-indexing.md) | `TODO` | 0/14 | P1 | M2 | 文档可异步、幂等地形成可检索向量 |
 | [P3 检索与 RAG 集成](03-retrieval-and-rag-integration.md) | `TODO` | 0/13 | P2 | M3 | 混合检索和 Session RAG MVP 可用 |
 | [P4 生产就绪](04-production-readiness.md) | `TODO` | 0/12 | P3 | M4 | 安全、观测、恢复和生产拓扑通过验收 |
@@ -38,7 +38,7 @@ P0 已完成决策冻结和基线记录。P1 的 schema、application ports、�
 | 里程碑 | 状态 | 通过条件 |
 |---|---|---|
 | M0 决策与基线就绪 | `DONE` | D-001、D-003、D-006、D-007、D-008 已决定；D-002、D-004、D-005、D-009、D-010 已记录合规暂缓和复核日期，代表性基线与威胁边界可供后续复用 |
-| M1 基础契约就绪 | `IN_PROGRESS` | forward migration、application ports、配置校验、Qdrant adapter 骨架和开发健康检查已静态/Mock 通过；待 Compose/live health/schema smoke |
+| M1 基础契约就绪 | `DONE` | forward migration、application ports、配置校验、Qdrant adapter、Compose/live health/schema、鉴权与完整读写清理 smoke 均通过 |
 | M2 入库索引闭环 | `TODO` | 上传到可检索向量全链路通过，崩溃重试、幂等、删除和对账行为可证明 |
 | M3 MVP 可用 | `TODO` | 混合检索、PostgreSQL 最终鉴权、引用、Session 集成和 FTS 降级通过 |
 | M4 生产就绪 | `TODO` | 生产拓扑、安全审计、告警、备份恢复、重建和故障演练通过 |
@@ -98,15 +98,16 @@ P0 已完成决策冻结和基线记录。P1 的 schema、application ports、�
 | 2026-09-01 | P0 决策冻结 | 本地工作区 | 决策矩阵、阶段门禁和敏感信息检查；`docker --version`；`docker compose version` | 5 项决定、5 项按日期暂缓；P0 允许进入 P1；Docker CLI 未安装，live smoke 待外部环境 | `00-development-readiness.md` 第 4.1、7 节 |
 | 2026-09-01 | P1 契约实现 | 本地工作区 | 全量 Go test/vet/build、前端 lint/build、隔离 PostgreSQL 迁移首次/重复执行、临时 `httptest` adapter smoke（85.8% statements）、`docker compose --profile vector config --quiet`、`git diff --check` | migration、ports、配置、adapter、Compose profile 和装配完成；兼容旧 `contents` 写入的默认租户验证通过；Compose 配置解析通过；Docker CLI/Compose 可调用但 Docker Desktop Linux 引擎因 WSL 运行时错误未启动，live smoke 待修复运行时或外部环境 | `01-data-and-contract-foundation.md` 第 8 节 |
 | 2026-09-01 | P1 live smoke 环境诊断 | 本地工作区 | `docker desktop status`；Docker Desktop 诊断日志；`wsl.exe -l -v --all` | 状态持续为 `starting`；日志确认 `docker-desktop` 发行版缺失，并在导入 `C:\\Program Files\\WSL\\system.vhd` 时返回 `Wsl/Service/RegisterDistro/CreateVm/MountDisk/HCS/ERROR_NOT_FOUND`。未执行 WSL 安装、注销或重置等宿主机变更 | 本次任务执行记录 |
+| 2026-09-01 | P1 Qdrant 实机验收 | Docker Desktop/WSL2、`qdrant/qdrant:v1.14.1` | Compose config/up/health；临时 Go live smoke；后端全量 test/vet/build；前端 lint/build | 容器达到 `healthy`；无鉴权和随机临时 API key 模式均通过 collection/schema、5 个 payload index、重复 upsert、过滤检索、schema mismatch、按 ID/过滤删除及清理；修复无 `curl` healthcheck、空 key 鉴权语义和 payload index REST 契约；临时源码/collection 已删除且 key 未持久化，M1 通过 | `01-data-and-contract-foundation.md` 第 8 节 |
 
 不在此表粘贴密钥、Token、密码、真实 DSN 或受保护业务数据。长日志保存到受控构建系统，表中只保留摘要和链接。
 
 ## 8. 近期行动
 
-1. 修复本机 Docker Desktop/WSL 运行时，或提供可访问的隔离 Qdrant 测试实例，完成 Compose、健康检查、schema、payload index、upsert/delete/search 和可清理 smoke。
-2. 运行 `go vet ./...`、`go build ./...` 及前端 lint/build，确认 P1 提交前的全仓库门禁。
+1. 由项目负责人/安全评审关闭 D-002，明确 embedding provider、model、revision、dimension、metric、费用和数据合规边界。
+2. D-002 冻结后启动 P2，先复核 Git 状态、P2 文档、现有 worker/repository/AI adapter 的至少 3 个类似实现和实际调用链。
 3. 固定代表性文档语料、查询集和权限矩阵，记录当前 PostgreSQL 搜索与 Session 基线。
-4. 在 live smoke 通过且文档证据补齐后，再开始 P2 worker/入库实现。
+4. 按 P2 的异步、幂等、崩溃恢复和清理门禁小步实现，每个阶段独立验证、更新文档并提交。
 
 ## 9. 更新记录
 
@@ -117,3 +118,4 @@ P0 已完成决策冻结和基线记录。P1 的 schema、application ports、�
 | 2026-08-31 | 完成 P0-01 静态基线检查点，补充阶段计划、验收命令、待确认决策矩阵和 Docker 环境阻断；P0 仍未通过门禁。 |
 | 2026-09-01 | 冻结 P0 工程决策和暂缓项，P0 通过 P1 前置门，启动 P1；Docker CLI 缺失继续作为 live Qdrant smoke 阻断。 |
 | 2026-09-01 | 完成 P1 基础契约实现和 Mock 验证；M1 保持 `IN_PROGRESS`，Docker Desktop Linux 引擎的 WSL 挂载错误已定位，等待运行时修复或外部 Docker/Qdrant live smoke 后再决定是否进入 P2。 |
+| 2026-09-01 | Docker Desktop/WSL2 恢复后完成 P1 Qdrant 实机验收，修复 Compose health/API key 与 payload index 契约问题；P1 标记 `DONE`、M1 通过，下一阶段等待 D-002 embedding 契约冻结。 |

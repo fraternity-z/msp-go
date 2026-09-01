@@ -144,7 +144,7 @@ docker compose --profile vector up -d qdrant
 docker compose --profile vector ps qdrant
 ```
 
-将后端 `.env` 中的 `QDRANT_ENABLED` 设为 `true`，容器内访问地址使用 `http://qdrant:6333`（宿主机运行 Go API 时使用 `http://localhost:6333`）。P1 adapter 不会在未提供 embedding dimension/metric 时自动创建 collection；collection 的 schema 和 payload index 由后续 generation 建立流程显式校验。停止 profile 使用 `docker compose --profile vector stop qdrant`，不要删除 PostgreSQL 数据卷。
+将后端 `.env` 中的 `QDRANT_ENABLED` 设为 `true`，容器内访问地址使用 `http://qdrant:6333`（宿主机运行 Go API 时使用 `http://localhost:6333`）。本地 `QDRANT_API_KEY` 留空时，Compose 会在启动 Qdrant 前移除空的服务端 key 环境变量，避免 Qdrant 把“存在但为空”解释为已开启鉴权；设置非空 key 时，healthcheck 和 adapter 都使用该 key，不能把值写入日志或文档。healthcheck 使用镜像自带 Bash 的 `/dev/tcp`，不依赖镜像中不存在的 `curl`。P1 adapter 不会在未提供 embedding dimension/metric 时自动创建 collection；collection 的 schema 和 payload index 由后续 generation 建立流程显式校验。停止 profile 使用 `docker compose --profile vector stop qdrant`，不要删除 PostgreSQL 或 Qdrant 数据卷。
 
 后台 AI provider 的 `base_url` 可以填写纯主机根地址或完整 API base；纯主机地址会自动补 `/v1`，只要地址中已有路径就会原样使用，因此 `/v1`、`/proxy/v1`、`/v1beta/openai` 均不会被重复改写。非流式调用会自动兼容 Chat Completions 与 Responses，推理模型按大小写不敏感的 `gpt-5*`、`o1*`、`o3*`、`o4*` 前缀识别，也兼容 `provider/model` 命名空间，并优先尝试 Responses。连接测试对推理模型使用 `max_completion_tokens=32`，对旧式 Chat provider 保留 `max_tokens=32`。
 

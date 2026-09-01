@@ -20,7 +20,7 @@
 
 ### 资源中心向量检索
 
-- [ ] 按 P0-P6 分阶段接入 Qdrant：P0 已完成，P1 schema/ports/config/adapter/Compose profile 已实现并通过 Mock；Docker CLI/Compose 可调用但 Docker Desktop Linux 引擎因 WSL 运行时错误未启动，M1 仍等待 Docker/Qdrant live smoke，D-002、D-004、D-005、D-009、D-010 按日期暂缓，详见 [专项进度](plans/resource-center-qdrant/PROGRESS.md)。
+- [ ] 按 P0-P6 分阶段接入 Qdrant：P0/P1 已完成，M1 通过；Compose Qdrant 在无鉴权与随机临时 API key 两种模式下完成 schema、payload index、幂等写入、检索、负向校验、删除与清理实机 smoke。P2 等待 D-002 冻结实际 embedding provider/model/revision/dimension/metric、费用与数据合规边界；D-004、D-005、D-009、D-010 继续按日期复核，详见 [专项进度](plans/resource-center-qdrant/PROGRESS.md)。
 
 ### AI 学习闭环
 

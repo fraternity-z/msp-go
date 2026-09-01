@@ -1,6 +1,6 @@
 # P1 数据与契约基础
 
-> 状态：`IN_PROGRESS`
+> 状态：`DONE`
 > 里程碑：M1 基础契约就绪
 > 前置依赖：[P0 开发准备与决策冻结](00-development-readiness.md) `DONE`
 > 后续阶段：[P2 入库与向量索引](02-ingestion-and-vector-indexing.md)
@@ -57,7 +57,7 @@
 - 运行 Compose 配置校验和开发 profile 健康 smoke；不把单节点结果宣称为生产验收。
 - 按仓库规则记录覆盖率并删除临时测试源码和 fixture。
 
-本次已完成的静态/Mock 验证：后端相关包及全量 `go test`、临时 `httptest`（health、API key header、upsert、schema mismatch）、`go vet`、`go build`、`docker compose --profile vector config --quiet` 和 `git diff --check` 均通过；迁移在隔离 PostgreSQL 临时集群中首次应用和重复执行通过。Docker CLI 已安装且 Compose 插件可调用，但 Docker Desktop Linux 引擎无法启动，因此真实 Compose/Qdrant health smoke 尚未执行。诊断日志显示 `docker-desktop` WSL 发行版不存在，并在挂载 `C:\\Program Files\\WSL\\system.vhd` 时返回 `Wsl/Service/RegisterDistro/CreateVm/MountDisk/HCS/ERROR_NOT_FOUND`。
+本次静态/Mock 与实机验证均已完成：后端相关包及全量 `go test`、临时 `httptest`（health、API key header、upsert、schema mismatch）、`go vet`、`go build`、前端 lint/build、`docker compose --profile vector config --quiet` 和 `git diff --check` 均通过；迁移在隔离 PostgreSQL 临时集群中首次应用和重复执行通过。Docker Desktop/WSL2 恢复后，`qdrant/qdrant:v1.14.1` 容器达到 `healthy`，临时 collection 完成 schema、5 个 payload index、确定性重复 upsert、过滤检索、dimension mismatch、按 ID/过滤删除和清理验证；无鉴权开发模式与进程内随机 API key 鉴权模式均通过。实机验证发现并修复了镜像不含 `curl`、空 API key 环境变量会意外开启鉴权，以及 payload index REST 路径/请求体不符合 Qdrant 契约的问题；临时测试源码和 collection 已删除，随机 key 未输出或持久化。
 
 ## 6. 阶段退出条件
 
@@ -79,13 +79,13 @@
 
 | 字段 | 内容 |
 |---|---|
-| 状态 | `IN_PROGRESS`（实现完成，待 live smoke 门禁） |
+| 状态 | `DONE` |
 | 负责人 | Codex |
 | 开始日期 | 2026-09-01 |
-| 完成日期 |  |
-| 验证命令 | `go test ./internal/application/resource ./internal/adapter/qdrant ./internal/platform/config ./internal/platform/health ./cmd/api`；`go test ./... -count=1`；临时 `httptest`；`go vet ./...`；`go build ./...`；前端 `npm run lint`/`npm run build`；`docker compose --profile vector config` |
-| 验证结果 | 相关包/全量测试、临时 adapter smoke、隔离 PostgreSQL 迁移首次/重复执行、`go vet`、`go build`、Compose 配置解析均通过；Docker CLI/Compose 可调用，但 Docker Desktop Linux 引擎因 WSL 发行版/虚拟磁盘错误未启动，live Qdrant 尚未执行 |
+| 完成日期 | 2026-09-01 |
+| 验证命令 | `go test ./internal/application/resource ./internal/adapter/qdrant ./internal/platform/config ./internal/platform/health ./cmd/api -count=1`；`go test ./... -count=1`；临时 `httptest`/live smoke；`go vet ./...`；`go build ./...`；前端 `npm run lint`/`npm run build`；`docker compose --profile vector config --quiet`；`docker compose --profile vector up -d qdrant` |
+| 验证结果 | 相关包/全量测试、临时 adapter smoke、隔离 PostgreSQL 迁移首次/重复执行、`go vet`、`go build`、前端 lint/build、Compose 配置及容器健康均通过；实机 Qdrant 在无鉴权和随机临时 API key 两种模式下完成 collection/schema、5 个 payload index、幂等写入、过滤检索、schema 负向校验、删除与清理，最终临时 collection 数为 0 |
 | 覆盖率 | 临时 adapter `httptest` 覆盖率 85.8% statements，覆盖公开操作的成功、边界、旧 API 回退和错误映射；测试源码与 profile 已删除，不纳入仓库 |
 | 交付物 | migration、application ports、Qdrant adapter 骨架、配置、Compose、健康装配和技术文档 |
 | 回滚或降级验证 | `QDRANT_ENABLED=false` 保持旧启动链；健康/管理员状态仅在配置启用时包含 Qdrant；网络失败映射为 degraded |
-| 遗留风险 | 缺少 Docker 环境的 live health/schema smoke；D-002/D-004/D-005/D-009/D-010 仍按 P0 计划暂缓；P2 前不能宣称可检索或质量达标 |
+| 遗留风险 | D-002/D-004/D-005/D-009/D-010 仍按 P0 计划暂缓；P2 前必须冻结实际 embedding 契约，P3 前不能宣称业务可检索，P5 前不能宣称质量或性能达标 |

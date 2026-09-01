@@ -179,8 +179,8 @@ func (c *Client) ensurePayloadIndex(ctx context.Context, route string, index res
 	default:
 		return &Error{Operation: "payload index", Code: resourceapp.ErrVectorInvalid}
 	}
-	payload := map[string]any{"field_schema": kind}
-	err := c.request(ctx, "payload index", http.MethodPut, c.endpoint("collections", route, "index", field), nil, payload, nil, c.timeout)
+	payload := map[string]any{"field_name": field, "field_schema": kind}
+	err := c.request(ctx, "payload index", http.MethodPut, c.endpoint("collections", route, "index"), waitQuery(c.waitForChanges), payload, nil, c.timeout)
 	return err
 }
 

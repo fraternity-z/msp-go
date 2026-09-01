@@ -22,7 +22,7 @@ Copy-Item .env.example .env
 
 使用 Compose 前必须在 `.env` 中显式设置每个环境唯一的随机 `POSTGRES_PASSWORD`；非开发环境会拒绝空值、占位值、与用户名相同或少于 16 字节的密码。生产环境还必须替换 `JWT_SECRET_KEY`、`FERNET_SECRET_KEY`、初始管理员密码、CORS 和管理网段。对象存储后端与云存储凭据不从 `.env` 读取，首次部署后由管理员在“系统设置 > 存储设置”中测试并保存；数据库中的 Access Key 和 Secret Key 使用 `FERNET_SECRET_KEY` 加密，因此该密钥必须稳定保存，不能在重启时轮换或留空。设置 `ENVIRONMENT=production`，不要把开发密钥或真实 `.env` 提交到仓库。启用公众号时还必须按消息模式设置 `WECHAT_OFFICIAL_ACCOUNT_*` 配置；`APP_SECRET`、`TOKEN` 和非明文模式使用的 `AES_KEY` 应由部署密钥系统或权限收紧的 `.env` 提供，不能写入镜像、Compose 文件或版本库。任何凭据出现在截图、日志或聊天记录中都视为泄露，应先在对应供应商控制台轮换再部署。
 
-资源中心向量能力默认关闭。启用时设置 `QDRANT_ENABLED=true`、`QDRANT_URL`、`QDRANT_COLLECTION` 和独立的 `QDRANT_API_KEY`；生产环境没有 API key 时 API 会拒绝启动。Qdrant 只接受 adapter 发出的最小向量/payload，PostgreSQL 仍是资源、版本和权限真相。P1 不会因 Qdrant 运行时不可达而阻断 API，详细健康会显示 `degraded`；collection dimension/metric 必须由后续 embedding generation 显式校验。
+资源中心向量能力默认关闭。启用时设置 `QDRANT_ENABLED=true`、`QDRANT_URL`、`QDRANT_COLLECTION` 和独立的 `QDRANT_API_KEY`；生产环境没有 API key 时 API 会拒绝启动。Qdrant 只接受 adapter 发出的最小向量/payload，PostgreSQL 仍是资源、版本和权限真相。P1 的开发单节点已通过无鉴权与随机临时 API key 两种模式的实机 smoke；Qdrant 运行时不可达不会阻断 API，详细健康会显示 `degraded`。生产环境仍必须使用非空 key；collection dimension/metric 必须由后续 embedding generation 显式校验。
 
 对象存储运行配置遵循以下操作契约：
 
@@ -81,7 +81,7 @@ docker compose --profile vector up -d qdrant
 docker compose --profile vector ps qdrant
 ```
 
-宿主机运行 Go API 使用 `QDRANT_URL=http://localhost:6333`；后端也在 Compose 内运行时使用 `QDRANT_URL=http://qdrant:6333`。停止 Qdrant profile 不会删除 PostgreSQL 数据或资源对象。
+宿主机运行 Go API 使用 `QDRANT_URL=http://localhost:6333`；后端也在 Compose 内运行时使用 `QDRANT_URL=http://qdrant:6333`。开发环境 `QDRANT_API_KEY` 留空时 Compose 会移除空的服务端 key 环境变量并运行无鉴权 Qdrant；非空时启用服务端鉴权。该宽松默认值只适用于回环绑定的本地 profile，生产必须提供独立非空 key。停止 Qdrant profile 不会删除 PostgreSQL、Qdrant 数据卷或资源对象。
 
 数据库健康后执行 Go migration runner，再启动应用服务。仓库仅保留 `scripts/update.sh` 作为已有环境升级入口，不提供首次生产部署脚本。首次部署由运维人员在完成 `.env` 和边缘代理配置后按下述顺序执行；私有 GHCR 包应先使用最小权限凭据登录，Token 不写入配置或日志。
 
