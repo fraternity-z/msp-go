@@ -22,6 +22,9 @@ import type {
   FetchModelsResponse,
   ModelsUpdateRequest,
   ModelsUpdateResponse,
+  EmbeddingModelVersion,
+  ConfigureEmbeddingRequest,
+  EmbeddingProbeResult,
   ListResponse,
   SuccessResponse,
 } from '@/modules/ai-config/types/aiConfig';
@@ -330,6 +333,49 @@ export const aiConfigService = {
       return response.data;
     } catch (error) {
       aiConfigLogger.error('设置默认模型失败', { modelId, error });
+      throw error;
+    }
+  },
+
+  // ========== 向量模型配置 ==========
+
+  async listEmbeddingModels(signal?: AbortSignal): Promise<ListResponse<EmbeddingModelVersion>> {
+    try {
+      const response = await apiClient.get<ListResponse<EmbeddingModelVersion>>(
+        `${BASE_PATH}/embeddings`,
+        { signal }
+      );
+      return response.data;
+    } catch (error) {
+      if (!signal?.aborted) aiConfigLogger.error('获取向量模型配置失败', error);
+      throw error;
+    }
+  },
+
+  async testEmbeddingModel(data: ConfigureEmbeddingRequest, signal?: AbortSignal): Promise<EmbeddingProbeResult> {
+    try {
+      const response = await apiClient.post<EmbeddingProbeResult>(
+        `${BASE_PATH}/embeddings/test`,
+        data,
+        { signal }
+      );
+      return response.data;
+    } catch (error) {
+      if (!signal?.aborted) aiConfigLogger.error('测试向量模型失败', { modelId: data.model_id, error });
+      throw error;
+    }
+  },
+
+  async activateEmbeddingModel(data: ConfigureEmbeddingRequest, signal?: AbortSignal): Promise<EmbeddingModelVersion> {
+    try {
+      const response = await apiClient.put<EmbeddingModelVersion>(
+        `${BASE_PATH}/embeddings/active`,
+        data,
+        { signal }
+      );
+      return response.data;
+    } catch (error) {
+      if (!signal?.aborted) aiConfigLogger.error('激活向量模型失败', { modelId: data.model_id, error });
       throw error;
     }
   },

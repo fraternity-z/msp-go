@@ -6,6 +6,8 @@
 > 后续阶段：[P1 数据与契约基础](01-data-and-contract-foundation.md)
 > 开始日期：2026-08-31
 > 完成日期：2026-09-01
+> 模型配置补充决策：实际 embedding 模型由管理员在管理端测试并激活；代码、环境变量和普通请求方不得替代管理员选择。
+> 后续执行门：P2-A 完成后必须暂停，等待管理员确认 active 模型和项目负责人明确继续，方可启动 P2-B。
 
 ## 1. 阶段目标
 
@@ -17,13 +19,14 @@
 - 当前运行行为以 `backend/internal/application/resource`、`backend/internal/adapter/postgres/resource_repository.go`、`backend/internal/application/session`、当前迁移链和部署配置为准。
 - PostgreSQL 必须继续作为业务、版本、发布状态和权限的唯一真相。
 - MVP 不得宣称已完成完整多租户；没有完整租户模型时使用显式默认租户和默认知识库。
+- Embedding provider、model、revision、dimension、metric 及运行参数由管理员通过管理端配置、测试并激活；运行时只消费 active 不可变版本，不保留代码或环境变量模型默认值。
 - 所有 spike 产生的 collection、对象、临时测试和数据必须可清理，不得混入生产配置。
 
 ## 3. 工作清单
 
 - [x] **P0-01 当前基线清单**：记录资源 API、状态语义、schema、上传/对象存储、Session 上下文、配置和部署拓扑；标出与目标架构的差距。已完成静态基线记录，运行态数据量、查询计划和资源预算仍按第 5 节待补。
 - [x] **P0-02 MIME 与输入边界**：关闭 D-001，首批支持 PDF、DOCX、TXT、MD；单文件 50 MiB、200 页、2,000,000 字符，单批 10 个文件，解析预算 120 秒；拒绝压缩包和扫描 PDF，并使用稳定的大小/类型/解析错误码。
-- [x] **P0-03 Embedding 契约**：D-002 暂缓到 2026-09-08；先冻结供应商无关的 provider/model/revision/dimension/metric 字段和启用条件，不在未配置模型时创建 collection 或调用外部服务。
+- [x] **P0-03 Embedding 契约**：D-002 的实际取值暂缓到管理员配置；先冻结供应商无关的 provider/model/revision/dimension/metric 字段和启用条件，由 P2-A 提供管理端测试、原子激活和版本历史，不在未激活模型时创建 collection 或调用外部服务。
 - [x] **P0-04 Collection 契约**：关闭 D-003，采用按场景与模型族共享的 dense collection、COSINE、generation 隔离和强制 payload index；MVP 不启用 custom shard key，也不允许请求方选择 collection。
 - [x] **P0-05 质量基线**：D-004 暂缓到 2026-09-08；P1/P2 只做契约、安全和可执行性验证，未形成标注集前不宣称 Recall/MRR/nDCG 或引用质量达标。
 - [x] **P0-06 性能容量基线**：D-005 暂缓到 2026-09-08；先保留 10 万至 100 万 chunk 的容量档和测量字段，未有代表性负载前不修改生产参数或宣称 SLO 达标。
@@ -57,7 +60,7 @@
 | 决策 ID | 需要确认的内容 | 当前状态 | 直接影响 |
 |---|---|---|---|
 | D-001 | 首批 MIME（PDF/DOCX/TXT/MD 等）、单文件大小、页数/字符数、批量数、超时、拒绝错误码，以及是否允许压缩包或扫描 PDF | `OPEN` | 上传 API、解析器、资源耗尽防护 |
-| D-002 | embedding provider、model key、revision、维度、distance metric、批量/超时/重试、数据驻留与敏感信息策略 | `OPEN` | `embedding_models`、collection 代际、成本和合规 |
+| D-002 | 由管理员配置的 embedding provider、model key、revision、维度、distance metric、批量/超时/重试、数据驻留与敏感信息策略 | `OPEN` | 管理端 AI 模型设置、`embedding_models`、collection 代际、成本和合规 |
 | D-003 | collection/alias 命名、共享粒度、vector/payload schema、payload index、shard/placement、generation 和禁止混写规则 | `OPEN` | Qdrant adapter、迁移和重建 |
 | D-004 | 代表性语料与查询集、标注责任人、Recall@K、MRR/nDCG、引用正确率和无答案拒答阈值 | `OPEN` | P3 正确性与 P5 质量验收 |
 | D-005 | 10 万～100 万 chunk 容量档、并发、文档吞吐、检索 P95/P99、worker backlog 和成本预算 | `OPEN` | worker 并发、索引参数和扩容阈值 |
@@ -72,7 +75,7 @@
 | 决策 ID | 最小输出 |
 |---|---|
 | D-001 | MIME 白名单、限制值、错误码、是否允许压缩包/扫描 PDF |
-| D-002 | provider/model/revision/dim/metric、批量与合规说明 |
+| D-002 | 管理员测试并激活的 provider/model/revision/dim/metric、批量与合规说明，以及非敏感激活证据 |
 | D-003 | collection/alias、payload index、shard key 命名示例、共享与隔离规则 |
 | D-004 | 固定语料、查询、标注责任人、离线指标和通过阈值 |
 | D-005 | 数据规模、并发、延迟、吞吐、backlog 与成本阈值 |
@@ -89,7 +92,7 @@
 | 决策 | 状态 | 本次结论与复核边界 |
 |---|---|---|
 | D-001 | `DECIDED` | PDF/DOCX/TXT/MD；50 MiB、200 页、200 万字符、单批 10 个、解析 120 秒；不接收压缩包或扫描 PDF。 |
-| D-002 | `DEFERRED` | 采用 OpenAI-compatible 供应商无关适配器；provider/model/revision/dimension/metric 必须由环境完整配置，2026-09-08 前确认实际模型、合规和费用。 |
+| D-002 | `DEFERRED` | 采用 OpenAI-compatible 供应商无关适配器；provider/model/revision/dimension/metric、批量、超时和重试由管理员在管理端测试并激活，不写死于代码或环境变量。P2-A 可先实现管理闭环；管理员确认实际模型、合规和费用前不得进入 P2-B。 |
 | D-003 | `DECIDED` | `resource_chunks_dense_<model_family>_v1` 共享 collection，COSINE dense vector；tenant、knowledge base、version、model、generation、projected state 建 payload index；MVP 无 alias/custom shard。 |
 | D-004 | `DEFERRED` | 2026-09-08 前提供带权限边界的中文/英文/数学代表性语料、查询集和标注人；此前只验收安全与契约，不发布召回指标。 |
 | D-005 | `DEFERRED` | 2026-09-08 前补充容量、并发、P95/P99、吞吐、backlog 和成本预算；开发小数据只用于可执行性验证。 |
@@ -110,7 +113,7 @@
 5. 当前开发 Compose 资源占用，以及增加 Qdrant 单节点的本机资源预算。
 6. 当前日志和错误响应的脱敏检查。
 
-外部 provider 和 Qdrant 使用 Mock 完成错误路径验证；live spike 只使用环境变量注入凭据，记录结果后清理临时 collection、对象和测试源码。
+外部 provider 和 Qdrant 使用 Mock 完成错误路径验证；embedding live probe 只使用管理员在管理端维护的渠道凭据和模型，文档、命令与日志不记录凭据。验证后清理临时 collection、对象和测试源码。
 
 ### 5.1 本次已执行的基线命令
 
@@ -132,6 +135,7 @@
 - 默认租户/知识库不会被误解为完整多租户能力。
 - 威胁、成本、RPO/RTO 和降级均有负责人。
 - `PROGRESS.md` 已同步任务数、决策、风险和下一阶段启动条件。
+- P2-A 只负责管理员模型配置闭环；P2-A 完成后强制暂停，不把完成状态解释为 P2-B 启动授权。
 
 ## 7. 完成记录
 
@@ -146,4 +150,4 @@
 | 覆盖率 | 本检查点仅修改文档，不新增运行时代码；覆盖率不适用。后续阶段按临时测试规则记录，核心新增逻辑目标不低于 80%。 |
 | 交付物 | 当前事实清单、D-001～D-010 决策登记、MVP 状态/权限/降级边界、阶段计划、基线命令记录和 P1 启动条件。 |
 | 回滚或清理 | 仅文档变更，可通过本阶段 Git commit 回退；未创建 Qdrant collection、对象、凭据或测试 fixture。 |
-| 遗留风险 | 五项决策按日期暂缓；当前资源创建即 `PUBLISHED` 的兼容迁移将在 P1/P2 实现；本机 Docker/Qdrant smoke 环境不可用。 |
+| 遗留风险 | 五项决策按日期暂缓；D-002 的实际模型由管理员在 P2-A 管理端闭环中测试并激活；P2-A 完成后仍须暂停并等待明确继续指令。当前资源创建即 `PUBLISHED` 的兼容迁移将在 P2-B 实现。Docker/Qdrant 在 P0 执行时不可用，运行时随后已恢复并在 P1 完成实机 smoke。 |

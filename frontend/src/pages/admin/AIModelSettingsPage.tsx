@@ -19,6 +19,7 @@ import {
   Loader2,
   CheckCircle,
   Server,
+  DatabaseZap,
 } from 'lucide-react';
 
 // 导入 Admin 模块组件
@@ -26,6 +27,7 @@ import {
   ChannelFormModal,
   ChannelCard,
   AgentConfigPanel,
+  EmbeddingConfigPanel,
 } from '@/modules/admin';
 
 // 导入 Hooks 和类型
@@ -245,7 +247,7 @@ export const AIModelSettingsPage: React.FC = () => {
     <AdminLayout>
       <div className="container mx-auto max-w-7xl">
         {/* 页面标题 */}
-        <div className="flex justify-between items-center mb-8">
+        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-3xl font-bold text-surface-900 dark:text-surface-100 mb-2">
               AI 模型设置
@@ -254,8 +256,8 @@ export const AIModelSettingsPage: React.FC = () => {
               配置和管理系统使用的 AI 渠道和智能体
             </p>
           </div>
-          <div className="flex gap-3">
-            <Button variant="outline" onClick={handleRefresh} disabled={isRefreshing}>
+          <div className="flex w-full gap-3 sm:w-auto">
+            <Button className="flex-1 whitespace-nowrap sm:flex-none" variant="outline" onClick={handleRefresh} disabled={isRefreshing}>
               {isRefreshing ? (
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
               ) : (
@@ -263,7 +265,7 @@ export const AIModelSettingsPage: React.FC = () => {
               )}
               刷新
             </Button>
-            <Button onClick={handleOpenCreateModal}>
+            <Button className="flex-1 whitespace-nowrap sm:flex-none" onClick={handleOpenCreateModal}>
               <Plus className="w-4 h-4 mr-2" />
               添加渠道
             </Button>
@@ -346,16 +348,22 @@ export const AIModelSettingsPage: React.FC = () => {
 
         {/* 主要内容 */}
         <Tabs defaultValue="channels" className="space-y-6">
-          <TabsList>
-            <TabsTrigger value="channels">
-              <Server className="w-4 h-4 mr-2" />
-              渠道管理
-            </TabsTrigger>
-            <TabsTrigger value="agents">
-              <Bot className="w-4 h-4 mr-2" />
-              智能体配置
-            </TabsTrigger>
-          </TabsList>
+          <div className="overflow-x-auto pb-1">
+            <TabsList className="min-w-max">
+              <TabsTrigger value="channels">
+                <Server className="w-4 h-4 mr-2" />
+                渠道管理
+              </TabsTrigger>
+              <TabsTrigger value="agents">
+                <Bot className="w-4 h-4 mr-2" />
+                智能体配置
+              </TabsTrigger>
+              <TabsTrigger value="embeddings">
+                <DatabaseZap className="w-4 h-4 mr-2" />
+                向量模型
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
           {/* 渠道管理 Tab */}
           <TabsContent value="channels" className="space-y-4">
@@ -431,6 +439,10 @@ export const AIModelSettingsPage: React.FC = () => {
               onDeleteConfig={handleDeleteAgentConfig}
               loading={agentConfigsLoading === 'loading'}
             />
+          </TabsContent>
+
+          <TabsContent value="embeddings">
+            <EmbeddingConfigPanel providers={providers} models={models} />
           </TabsContent>
         </Tabs>
 

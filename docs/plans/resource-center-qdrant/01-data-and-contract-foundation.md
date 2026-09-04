@@ -4,6 +4,8 @@
 > 里程碑：M1 基础契约就绪
 > 前置依赖：[P0 开发准备与决策冻结](00-development-readiness.md) `DONE`
 > 后续阶段：[P2 入库与向量索引](02-ingestion-and-vector-indexing.md)
+> 模型配置边界：P1 只提供供应商无关 schema/port；实际 embedding 模型由管理员在 P2-A 管理端测试并激活，不由环境变量或代码默认值选定。
+> 后续执行门：P2-A 完成后必须暂停，等待管理员确认 active 模型和项目负责人明确继续，方可启动 P2-B。
 
 ## 1. 阶段目标
 
@@ -15,7 +17,7 @@
 - `backend/internal/application/resource/`：领域模型、状态机和入库/索引 ports。
 - `backend/internal/adapter/postgres/`：资源版本、ACL、任务和 outbox repository。
 - `backend/internal/adapter/qdrant/`：唯一允许依赖 Qdrant client 的 adapter。
-- `backend/internal/platform/config/`：Qdrant、embedding、worker 和检索配置及启动校验。
+- `backend/internal/platform/config/`：Qdrant、worker 和检索静态配置及启动校验；embedding 模型运行时选择留给 P2-A 的管理员配置。
 - `backend/cmd/api/`：API 侧装配、健康检查和可选能力暴露。
 - `docker-compose.yml`、`.env.example` 和相关技术文档：仅开发/测试 Qdrant 单节点配置。
 
@@ -28,15 +30,15 @@
 - [x] **P1-03 默认租户与知识库**：固定 `default` tenant/kb UUID，现有 `contents` 确定性回填并设置 `tenant_id NOT NULL`；列默认值继续把旧写入链路归入默认租户，同时建立默认 membership。
 - [x] **P1-04 版本与资产约束**：加入 checksum、MIME、对象 URI、解析/索引状态、当前版本外键、chunk 顺序/偏移和软删除约束。
 - [x] **P1-05 ACL 基础**：新增知识库 subject ACL、allow/deny、有效期及查询索引；保留既有 `content_acl` 兼容读取，PG 作为最终鉴权来源。
-- [x] **P1-06 Embedding 与索引代际**：扩展 `embedding_models`，新增不可变 `embedding_model_versions`、`vector_index_generations` 和 `chunk_vector_manifests`，约束 dimension/metric/revision。
+- [x] **P1-06 Embedding 与索引代际**：扩展 `embedding_models`，新增不可变 `embedding_model_versions`、`vector_index_generations` 和 `chunk_vector_manifests`，约束 dimension/metric/revision；具体版本由 P2-A 绑定管理员配置的渠道模型并激活。
 - [x] **P1-07 可靠任务与 outbox**：新增 `resource_processing_jobs`，扩展 `outbox_events` 的 available、lease、heartbeat、dead、error code、最大重试和幂等键。
 - [x] **P1-08 Application ports**：定义对象读取、解析、切块、embedding、vector store、job/outbox、授权和 `KnowledgeRetriever` 的 provider-neutral 窄接口与错误分类。
-- [x] **P1-09 配置与启动校验**：加入 endpoint、API key、collection、payload index、超时、批量、wait-for-changes 和生产环境密钥校验；错误信息不包含密钥。
+- [x] **P1-09 配置与启动校验**：加入 Qdrant endpoint/API key、collection、payload index、超时、批量、wait-for-changes 和生产环境密钥校验；错误信息不包含密钥。此项不提供 embedding 模型的环境变量选择。
 - [x] **P1-10 Qdrant adapter 骨架**：实现 REST health、collection/schema 校验、payload index、upsert/delete/search、维度校验和脱敏错误映射；不自动修补错误 schema。
 - [x] **P1-11 开发 Compose**：以 `vector` profile 加入固定版本 Qdrant 单节点、healthcheck、持久卷和资源限制；默认核心栈不依赖该服务。
 - [x] **P1-12 装配与可观测入口**：API 按开关装配 Qdrant，加入详细健康和管理员系统状态；未启用时不创建接口，运行时不可达按 D-008 标为 degraded。
 
-实现说明：P1 只交付契约和连接骨架，不创建未决模型的 collection，也不启动文档处理 worker。`VectorIndex` 位于 application 层，Qdrant HTTP 细节仅存在于 `internal/adapter/qdrant`。
+实现说明：P1 只交付契约和连接骨架，不创建未决模型的 collection，也不启动文档处理 worker。P2-A 负责管理员模型测试、激活、不可变版本历史和运行时解析；P2-B 才能消费 active 版本。`VectorIndex` 位于 application 层，Qdrant HTTP 细节仅存在于 `internal/adapter/qdrant`。
 
 ## 4. 数据与迁移要求
 
@@ -88,4 +90,4 @@
 | 覆盖率 | 临时 adapter `httptest` 覆盖率 85.8% statements，覆盖公开操作的成功、边界、旧 API 回退和错误映射；测试源码与 profile 已删除，不纳入仓库 |
 | 交付物 | migration、application ports、Qdrant adapter 骨架、配置、Compose、健康装配和技术文档 |
 | 回滚或降级验证 | `QDRANT_ENABLED=false` 保持旧启动链；健康/管理员状态仅在配置启用时包含 Qdrant；网络失败映射为 degraded |
-| 遗留风险 | D-002/D-004/D-005/D-009/D-010 仍按 P0 计划暂缓；P2 前必须冻结实际 embedding 契约，P3 前不能宣称业务可检索，P5 前不能宣称质量或性能达标 |
+| 遗留风险 | D-002/D-004/D-005/D-009/D-010 仍按 P0 计划暂缓；P2-A 可建设管理员配置闭环，但 P2-A 完成后必须暂停，管理员激活实际 embedding 契约且项目负责人明确继续前不得启动 P2-B；P3 前不能宣称业务可检索，P5 前不能宣称质量或性能达标 |

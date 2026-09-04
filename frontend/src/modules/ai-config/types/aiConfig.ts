@@ -194,6 +194,60 @@ export interface UpdateModelRequest {
   description?: string;
 }
 
+// ========== 向量模型配置 ==========
+
+export type EmbeddingMetric = 'cosine' | 'dot' | 'euclid';
+
+export interface EmbeddingModelVersion {
+  id: string;
+  logical_name: string;
+  llm_model_id: string | null;
+  provider: string;
+  provider_model: string;
+  revision: string;
+  dimension: number;
+  metric: EmbeddingMetric;
+  tokenizer: string | null;
+  normalization: string | null;
+  max_tokens: number;
+  send_dimensions: boolean;
+  batch_size: number;
+  timeout_seconds: number;
+  max_retries: number;
+  status: 'draft' | 'active' | 'retired';
+  metadata: Record<string, unknown>;
+  verified_at: string | null;
+  activated_at: string | null;
+  retired_at: string | null;
+  created_at: string;
+  updated_at: string;
+  provider_name: string | null;
+  model_name: string | null;
+}
+
+export interface ConfigureEmbeddingRequest {
+  model_id: string;
+  revision: string;
+  dimension: number;
+  metric: EmbeddingMetric;
+  tokenizer: string;
+  normalization: string;
+  max_tokens: number;
+  send_dimensions: boolean;
+  batch_size: number;
+  timeout_seconds: number;
+  max_retries: number;
+}
+
+export interface EmbeddingProbeResult {
+  success: boolean;
+  message: string;
+  latency_ms: number;
+  model_id: string;
+  provider_model: string;
+  observed_dimension: number;
+}
+
 // ========== 智能体配置类型 ==========
 
 /**

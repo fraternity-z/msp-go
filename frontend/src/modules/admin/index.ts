@@ -9,6 +9,7 @@ export { useAIConfig, useProviders, useModels, useAgentConfigs, useTestConnectio
 export { ChannelFormModal } from './components/ChannelFormModal';
 export { ChannelCard } from './components/ChannelCard';
 export { AgentConfigPanel } from './components/AgentConfigPanel';
+export { EmbeddingConfigPanel } from './components/EmbeddingConfigPanel';
 export { AdminLayout } from './components/AdminLayout';
 
 // Constants

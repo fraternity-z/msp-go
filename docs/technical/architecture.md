@@ -1,6 +1,6 @@
 # 系统架构
 
-本文描述 MathStudyPlatform 当前有效的技术架构。未完成工作见 [项目待办](../TODO.md)，历史时间点资料见 [归档索引](../archive/README.md)。资源中心接入 Qdrant 的完整目标架构见 [资源中心 PostgreSQL + Qdrant 双数据库方案](resource-center-qdrant-architecture.md)。当前 P1 已加入可选 Qdrant adapter 和健康检查，但在 P2/P3 入库与检索验收前，Qdrant 不属于默认业务运行链路。
+本文描述 MathStudyPlatform 当前有效的技术架构。未完成工作见 [项目待办](../TODO.md)，历史时间点资料见 [归档索引](../archive/README.md)。资源中心接入 Qdrant 的完整目标架构见 [资源中心 PostgreSQL + Qdrant 双数据库方案](resource-center-qdrant-architecture.md)。当前 P1 已加入可选 Qdrant adapter 和健康检查；P2-A 已实现管理员专用的 embedding 测试、唯一 active 不可变版本激活、历史查询和失败关闭运行时解析，但开发库尚未完成真实模型激活。P2-B/P3 入库与检索尚未启动，Qdrant 仍不属于默认业务运行链路。
 
 ## 系统边界
 
@@ -153,4 +153,4 @@ backend/
 
 ## 数据与迁移
 
-PostgreSQL 是业务、版本和权限数据源，Redis 用于缓存和运行时辅助状态，Qdrant 仅保存可重建的向量和最小 payload。数据库结构由 `backend/migrations/` 中的 Go forward migration 管理；首次生产基线按基础结构、AI 风控、站内通信和外部通知四个领域分组，`0017_resource_vector_foundation` 追加资源中心契约，发布后的变化只追加新版本。历史 Alembic 链和开发期增量链已退出当前工作区。迁移规则见 [Go 数据库迁移策略](../../backend/migrations/README.md)。
+PostgreSQL 是业务、版本和权限数据源，Redis 用于缓存和运行时辅助状态，Qdrant 仅保存可重建的向量和最小 payload。数据库结构由 `backend/migrations/` 中的 Go forward migration 管理；首次生产基线按基础结构、AI 风控、站内通信和外部通知四个领域分组，`0017_resource_vector_foundation` 追加资源中心契约，`0018_admin_embedding_configuration` 追加管理员模型关联、验证/激活参数和单 active 约束，后续变化从 `0019` 起只追加新版本。历史 Alembic 链和开发期增量链已退出当前工作区。迁移规则见 [Go 数据库迁移策略](../../backend/migrations/README.md)。

@@ -116,7 +116,7 @@ go run ./cmd/migrate
 go run ./cmd/migrate  # 重复执行应无待应用版本
 ```
 
-当前共享迁移链是 `0001` 至 `0017`。`0005` 至 `0010` 交付每日题、画像、每日题一致性和错题闭环，`0011` 至 `0014` 交付论坛、学习会话模式、首次聊天幂等和 AI 参数默认值，`0015_auth_version` 交付账户级令牌失效，`0016_local_upload_access` 交付本地上传对象归属登记及附件 JSONB 索引，`0017_resource_vector_foundation` 交付资源中心租户/知识库、文档版本/chunk、模型版本、generation、job 和可靠 outbox 基础。全新数据库首次应记录 version 1 至 17；version 16 数据库只新增 version 17；复跑应无待应用版本。曾执行旧草稿 10 至 13 或旧错题草稿占用 version 11 的本地数据库，必须按 [迁移策略](../../backend/migrations/README.md) 的专用校准流程处理，不能删除账本后重放。runner 会校验数据库中的版本、名称和未知记录；其他旧开发链仍应重建或设计数据保留方案。资源中心后续迁移从 `0018` 起追加，详见 [专项进度](../plans/resource-center-qdrant/PROGRESS.md)。
+当前共享迁移链是 `0001` 至 `0018`。`0005` 至 `0010` 交付每日题、画像、每日题一致性和错题闭环，`0011` 至 `0014` 交付论坛、学习会话模式、首次聊天幂等和 AI 参数默认值，`0015_auth_version` 交付账户级令牌失效，`0016_local_upload_access` 交付本地上传对象归属登记及附件 JSONB 索引，`0017_resource_vector_foundation` 交付资源中心租户/知识库、文档版本/chunk、模型版本、generation、job 和可靠 outbox 基础，`0018_admin_embedding_configuration` 补充管理员管理的 embedding 契约与单 active 激活约束。全新数据库首次应记录 version 1 至 18；version 17 数据库只新增 version 18；复跑应无待应用版本。曾执行旧草稿 10 至 13 或旧错题草稿占用 version 11 的本地数据库，必须按 [迁移策略](../../backend/migrations/README.md) 的专用校准流程处理，不能删除账本后重放。runner 会校验数据库中的版本、名称和未知记录；其他旧开发链仍应重建或设计数据保留方案。资源中心后续迁移从 `0019` 起追加，详见 [专项进度](../plans/resource-center-qdrant/PROGRESS.md)。
 
 ## 环境配置
 
@@ -149,6 +149,10 @@ docker compose --profile vector ps qdrant
 后台 AI provider 的 `base_url` 可以填写纯主机根地址或完整 API base；纯主机地址会自动补 `/v1`，只要地址中已有路径就会原样使用，因此 `/v1`、`/proxy/v1`、`/v1beta/openai` 均不会被重复改写。非流式调用会自动兼容 Chat Completions 与 Responses，推理模型按大小写不敏感的 `gpt-5*`、`o1*`、`o3*`、`o4*` 前缀识别，也兼容 `provider/model` 命名空间，并优先尝试 Responses。连接测试对推理模型使用 `max_completion_tokens=32`，对旧式 Chat provider 保留 `max_tokens=32`。
 
 管理端在渠道或智能体配置完整保存后显示成功反馈，智能体配置保存成功后自动收起当前配置框；保存失败时保留当前表单并显示服务端原因。渠道编辑只有在渠道信息和模型列表都更新成功后才算完成。“已保存”仅表示配置已持久化，“已配置”还表示智能体存在启用的候选渠道，但两者都不代表外部模型可调用；真实连通性仍以渠道的“测试连接”结果为准。
+
+资源向量模型由管理员在“AI 模型设置 -> 向量模型”中选择已启用渠道模型，填写 revision、dimension、metric、tokenizer/normalization、max tokens、批量、超时和重试。测试与激活接口使用受控 HTTPS 出站客户端，校验 `/v1/embeddings` 的响应顺序和实际维度；凭据继续只加密保存在渠道记录中，不复制到 embedding 版本或响应。激活会在事务中退役旧版本并保证 `resource_embedding` 最多一个 active；无 active、渠道/模型停用或探针后来源发生变化时，运行时失败关闭，必须由管理员重新测试并激活，不能由代码、环境变量或普通请求回退覆盖。
+
+当前开发库没有已配置的 embedding 模型或 active 版本。迁移、Mock、权限、错误脱敏和前后端构建通过不等于真实 provider 已验收；进入 P2-B 前必须由管理员在管理端完成一次真实探针和激活，只记录模型标识、revision、dimension、metric、时间和结果，并同步确认费用与数据合规，不记录 API key 或上游正文。
 
 管理端的智能体参数覆盖不再提供或发送 Top P。新发现模型保存 Temperature `1.0`、Max Tokens `4096`、超时 `1800` 秒和最大重试 `3` 次作为配置基线；其中 Temperature、Max Tokens 和最大重试默认不启用，输入留空时前两项不写入 provider 请求且应用层不重试，只有显式覆盖才生效。超时留空时使用模型的 `1800` 秒总请求时限；这与 Cherry Studio 流式请求收到数据后重新计时的 idle timeout 并不完全等价。Agent 的 `MaxIterations` 固定使用独立默认值 `8`，不得再从重试次数推导。数值和开关语义参考 Cherry Studio 当前的 [Assistant 默认设置](https://github.com/CherryHQ/cherry-studio/blob/12498d68ecb4fb261670843ca7a8e4e64a37526a/src/shared/data/types/assistant.ts)、[请求超时](https://github.com/CherryHQ/cherry-studio/blob/12498d68ecb4fb261670843ca7a8e4e64a37526a/src/main/ai/constants.ts) 和 [模型重试策略](https://github.com/CherryHQ/cherry-studio/blob/12498d68ecb4fb261670843ca7a8e4e64a37526a/docs/references/ai/model-retry.md)。`0014_ai_generation_defaults` 会清空历史 Top P，并只校准仍使用旧默认值的模型；显式自定义的其他数值不变。数据库中的旧 Top P 列和后端兼容 JSON 字段暂时保留，但运行时一律忽略。
 
@@ -210,7 +214,7 @@ WECHAT_QA_MESSAGE_TEMPLATE_ID=
 
 若测试号页面没有消息加解密模式选项，使用 `plain`。不要自行编造 `AES_KEY`，兼容模式和安全模式必须使用微信后台对应的 `EncodingAESKey`。
 
-消息中心结构和北京时间默认值由 `backend/migrations/0003_communication.up.sql` 交付，微信公众号绑定和基础提醒任务由 `0004_delivery_integrations.up.sql` 交付；每日一题、画像、每日题一致性和错题闭环由 `0005` 至 `0010` 交付；论坛、学习会话一致性和 AI 参数默认值由 `0011` 至 `0014` 交付；账户级令牌失效由 `0015_auth_version.up.sql` 交付；本地上传对象归属登记和附件 JSONB 索引由 `0016_local_upload_access.up.sql` 交付；资源中心向量基础由 `0017_resource_vector_foundation.up.sql` 交付。全新数据库第一次运行应记录版本 `1` 至 `17`，version 16 数据库应只新增 version 17，第二次运行都应无待应用版本。
+消息中心结构和北京时间默认值由 `backend/migrations/0003_communication.up.sql` 交付，微信公众号绑定和基础提醒任务由 `0004_delivery_integrations.up.sql` 交付；每日一题、画像、每日题一致性和错题闭环由 `0005` 至 `0010` 交付；论坛、学习会话一致性和 AI 参数默认值由 `0011` 至 `0014` 交付；账户级令牌失效由 `0015_auth_version.up.sql` 交付；本地上传对象归属登记和附件 JSONB 索引由 `0016_local_upload_access.up.sql` 交付；资源中心向量基础由 `0017_resource_vector_foundation.up.sql` 交付；管理员管理的 embedding 契约及单 active 激活约束由 `0018_admin_embedding_configuration.up.sql` 交付。全新数据库第一次运行应记录版本 `1` 至 `18`，version 17 数据库应只新增 version 18，第二次运行都应无待应用版本。
 
 ```powershell
 Set-Location backend

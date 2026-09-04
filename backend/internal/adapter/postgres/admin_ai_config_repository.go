@@ -102,39 +102,41 @@ func (r AdminAIConfigRepository) CreateProvider(ctx context.Context, input admin
 
 // UpdateProvider updates one LLM provider.
 func (r AdminAIConfigRepository) UpdateProvider(ctx context.Context, providerID string, update adminaiconfigapp.ProviderUpdate, now time.Time) (adminaiconfigapp.LLMProvider, bool, error) {
-	current, ok, err := r.GetProvider(ctx, providerID)
-	if err != nil || !ok {
-		return adminaiconfigapp.LLMProvider{}, ok, err
-	}
-	name := current.Name
-	baseURL := current.BaseURL
-	encryptedAPIKey := current.EncryptedAPIKey
-	priority := current.Priority
-	weight := current.Weight
-	isActive := current.IsActive
-	description := current.Description
-	if update.Name != nil {
-		name = *update.Name
-	}
-	if update.BaseURL != nil {
-		baseURL = *update.BaseURL
-	}
-	if update.EncryptedAPIKey != nil {
-		encryptedAPIKey = *update.EncryptedAPIKey
-	}
-	if update.Priority != nil {
-		priority = *update.Priority
-	}
-	if update.Weight != nil {
-		weight = *update.Weight
-	}
-	if update.IsActive != nil {
-		isActive = *update.IsActive
-	}
-	if update.DescriptionSet {
-		description = update.Description
-	}
-	row := r.DB().QueryRow(ctx, `
+	var provider adminaiconfigapp.LLMProvider
+	found := false
+	err := r.withTx(ctx, func(tx AdminAIConfigRepository) error {
+		if err := tx.lockEmbeddingActivation(ctx); err != nil {
+			return err
+		}
+		current, ok, err := tx.GetProvider(ctx, providerID)
+		if err != nil || !ok {
+			return err
+		}
+		found = true
+		name, baseURL, encryptedAPIKey := current.Name, current.BaseURL, current.EncryptedAPIKey
+		priority, weight, isActive, description := current.Priority, current.Weight, current.IsActive, current.Description
+		if update.Name != nil {
+			name = *update.Name
+		}
+		if update.BaseURL != nil {
+			baseURL = *update.BaseURL
+		}
+		if update.EncryptedAPIKey != nil {
+			encryptedAPIKey = *update.EncryptedAPIKey
+		}
+		if update.Priority != nil {
+			priority = *update.Priority
+		}
+		if update.Weight != nil {
+			weight = *update.Weight
+		}
+		if update.IsActive != nil {
+			isActive = *update.IsActive
+		}
+		if update.DescriptionSet {
+			description = update.Description
+		}
+		row := tx.DB().QueryRow(ctx, `
 		UPDATE public.llm_providers
 		SET name = $2,
 			base_url = $3,
@@ -146,30 +148,43 @@ func (r AdminAIConfigRepository) UpdateProvider(ctx context.Context, providerID 
 			updated_at = $9
 		WHERE id = $1
 		RETURNING id, name, code, base_url, priority, weight, is_active, description, created_at, updated_at`,
-		providerID,
-		name,
-		baseURL,
-		encryptedAPIKey,
-		priority,
-		weight,
-		isActive,
-		description,
-		now,
-	)
-	provider, err := scanLLMProvider(row)
+			providerID, name, baseURL, encryptedAPIKey, priority, weight, isActive, description, now,
+		)
+		var scanErr error
+		provider, scanErr = scanLLMProvider(row)
+		return normalizeAIConfigPGError(scanErr)
+	})
 	if err != nil {
 		return adminaiconfigapp.LLMProvider{}, false, normalizeAIConfigPGError(err)
 	}
-	return provider, true, nil
+	return provider, found, nil
 }
 
 // DeleteProvider deletes one provider and cascades its models.
 func (r AdminAIConfigRepository) DeleteProvider(ctx context.Context, providerID string) (bool, error) {
-	tag, err := r.DB().Exec(ctx, `DELETE FROM public.llm_providers WHERE id = $1`, providerID)
+	deleted := false
+	err := r.withTx(ctx, func(tx AdminAIConfigRepository) error {
+		if err := tx.lockEmbeddingActivation(ctx); err != nil {
+			return err
+		}
+		inUse, err := tx.providerHasActiveEmbedding(ctx, providerID)
+		if err != nil {
+			return err
+		}
+		if inUse {
+			return activeEmbeddingSourceConflict()
+		}
+		tag, err := tx.DB().Exec(ctx, `DELETE FROM public.llm_providers WHERE id = $1`, providerID)
+		if err != nil {
+			return err
+		}
+		deleted = tag.RowsAffected() > 0
+		return nil
+	})
 	if err != nil {
 		return false, err
 	}
-	return tag.RowsAffected() > 0, nil
+	return deleted, nil
 }
 
 // ListModels returns provider models with provider display data.
@@ -310,51 +325,67 @@ func (r AdminAIConfigRepository) CreateModel(ctx context.Context, input adminaic
 
 // UpdateModel updates one model.
 func (r AdminAIConfigRepository) UpdateModel(ctx context.Context, modelID string, update adminaiconfigapp.ModelUpdate, now time.Time) (adminaiconfigapp.LLMModel, bool, error) {
-	current, ok, err := r.GetModel(ctx, modelID)
-	if err != nil || !ok {
-		return adminaiconfigapp.LLMModel{}, ok, err
-	}
-	name := current.Name
-	providerModelID := current.ModelID
-	temperature := current.DefaultTemperature
-	maxTokens := current.DefaultMaxTokens
-	topP := current.DefaultTopP
-	timeout := current.DefaultTimeout
-	retries := current.DefaultMaxRetries
-	isActive := current.IsActive
-	capabilities := current.Capabilities
-	description := current.Description
-	if update.Name != nil {
-		name = *update.Name
-	}
-	if update.ModelID != nil {
-		providerModelID = *update.ModelID
-	}
-	if update.DefaultTemperature != nil {
-		temperature = *update.DefaultTemperature
-	}
-	if update.DefaultMaxTokensSet {
-		maxTokens = update.DefaultMaxTokens
-	}
-	if update.DefaultTopPSet {
-		topP = update.DefaultTopP
-	}
-	if update.DefaultTimeout != nil {
-		timeout = *update.DefaultTimeout
-	}
-	if update.DefaultMaxRetries != nil {
-		retries = *update.DefaultMaxRetries
-	}
-	if update.IsActive != nil {
-		isActive = *update.IsActive
-	}
-	if update.CapabilitiesSet {
-		capabilities = update.Capabilities
-	}
-	if update.DescriptionSet {
-		description = update.Description
-	}
-	_, err = r.DB().Exec(ctx, `
+	var model adminaiconfigapp.LLMModel
+	found := false
+	err := r.withTx(ctx, func(tx AdminAIConfigRepository) error {
+		if err := tx.lockEmbeddingActivation(ctx); err != nil {
+			return err
+		}
+		current, ok, err := tx.GetModel(ctx, modelID)
+		if err != nil || !ok {
+			return err
+		}
+		found = true
+		if update.ModelID != nil && *update.ModelID != current.ModelID {
+			inUse, err := tx.embeddingModelIsActive(ctx, modelID)
+			if err != nil {
+				return err
+			}
+			if inUse {
+				return activeEmbeddingSourceConflict()
+			}
+		}
+		name := current.Name
+		providerModelID := current.ModelID
+		temperature := current.DefaultTemperature
+		maxTokens := current.DefaultMaxTokens
+		topP := current.DefaultTopP
+		timeout := current.DefaultTimeout
+		retries := current.DefaultMaxRetries
+		isActive := current.IsActive
+		capabilities := current.Capabilities
+		description := current.Description
+		if update.Name != nil {
+			name = *update.Name
+		}
+		if update.ModelID != nil {
+			providerModelID = *update.ModelID
+		}
+		if update.DefaultTemperature != nil {
+			temperature = *update.DefaultTemperature
+		}
+		if update.DefaultMaxTokensSet {
+			maxTokens = update.DefaultMaxTokens
+		}
+		if update.DefaultTopPSet {
+			topP = update.DefaultTopP
+		}
+		if update.DefaultTimeout != nil {
+			timeout = *update.DefaultTimeout
+		}
+		if update.DefaultMaxRetries != nil {
+			retries = *update.DefaultMaxRetries
+		}
+		if update.IsActive != nil {
+			isActive = *update.IsActive
+		}
+		if update.CapabilitiesSet {
+			capabilities = update.Capabilities
+		}
+		if update.DescriptionSet {
+			description = update.Description
+		}
+		_, err = tx.DB().Exec(ctx, `
 		UPDATE public.llm_models
 		SET name = $2,
 			model_id = $3,
@@ -368,46 +399,66 @@ func (r AdminAIConfigRepository) UpdateModel(ctx context.Context, modelID string
 			description = $11,
 			updated_at = $12
 		WHERE id = $1`,
-		modelID,
-		name,
-		providerModelID,
-		temperature,
-		maxTokens,
-		topP,
-		timeout,
-		retries,
-		isActive,
-		jsonObject(capabilities),
-		description,
-		now,
-	)
+			modelID,
+			name,
+			providerModelID,
+			temperature,
+			maxTokens,
+			topP,
+			timeout,
+			retries,
+			isActive,
+			jsonObject(capabilities),
+			description,
+			now,
+		)
+		if err != nil {
+			return normalizeAIConfigPGError(err)
+		}
+		model, found, err = tx.GetModel(ctx, modelID)
+		return err
+	})
 	if err != nil {
 		return adminaiconfigapp.LLMModel{}, false, normalizeAIConfigPGError(err)
 	}
-	model, ok, err := r.GetModel(ctx, modelID)
-	return model, ok, err
+	return model, found, nil
 }
 
 // DeleteModel deletes one model.
 func (r AdminAIConfigRepository) DeleteModel(ctx context.Context, modelID string) (bool, error) {
-	var providerID string
-	var wasDefault bool
-	err := r.DB().QueryRow(ctx, `SELECT provider_id, is_default FROM public.llm_models WHERE id = $1`, modelID).Scan(&providerID, &wasDefault)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return false, nil
+	deleted := false
+	err := r.withTx(ctx, func(tx AdminAIConfigRepository) error {
+		if err := tx.lockEmbeddingActivation(ctx); err != nil {
+			return err
 		}
-		return false, err
-	}
-	tag, err := r.DB().Exec(ctx, `DELETE FROM public.llm_models WHERE id = $1`, modelID)
-	if err != nil {
-		return false, err
-	}
-	if tag.RowsAffected() == 0 {
-		return false, nil
-	}
-	if wasDefault {
-		_, err = r.DB().Exec(ctx, `
+		inUse, err := tx.embeddingModelIsActive(ctx, modelID)
+		if err != nil {
+			return err
+		}
+		if inUse {
+			return activeEmbeddingSourceConflict()
+		}
+		var providerID string
+		var wasDefault bool
+		err = tx.DB().QueryRow(ctx, `SELECT provider_id, is_default FROM public.llm_models WHERE id = $1`, modelID).Scan(&providerID, &wasDefault)
+		if err == pgx.ErrNoRows {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		tag, err := tx.DB().Exec(ctx, `DELETE FROM public.llm_models WHERE id = $1`, modelID)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return nil
+		}
+		deleted = true
+		if !wasDefault {
+			return nil
+		}
+		_, err = tx.DB().Exec(ctx, `
 			UPDATE public.llm_models
 			SET is_default = true, updated_at = now()
 			WHERE id = (
@@ -418,11 +469,12 @@ func (r AdminAIConfigRepository) DeleteModel(ctx context.Context, modelID string
 			)`,
 			providerID,
 		)
-		if err != nil {
-			return false, err
-		}
+		return err
+	})
+	if err != nil {
+		return false, err
 	}
-	return true, nil
+	return deleted, nil
 }
 
 // SetDefaultModel marks one model as the provider default.
@@ -448,6 +500,9 @@ func (r AdminAIConfigRepository) SetDefaultModel(ctx context.Context, modelID st
 func (r AdminAIConfigRepository) ReplaceProviderModels(ctx context.Context, providerID string, inputs []adminaiconfigapp.ModelInput, now time.Time) (adminaiconfigapp.ModelsUpdateResult, error) {
 	result := adminaiconfigapp.ModelsUpdateResult{}
 	err := r.withTx(ctx, func(tx AdminAIConfigRepository) error {
+		if err := tx.lockEmbeddingActivation(ctx); err != nil {
+			return err
+		}
 		current, err := tx.listProviderModelsForReplace(ctx, providerID)
 		if err != nil {
 			return err
@@ -476,6 +531,13 @@ func (r AdminAIConfigRepository) ReplaceProviderModels(ctx context.Context, prov
 		for _, model := range current {
 			if _, ok := desired[model.ModelID]; ok {
 				continue
+			}
+			inUse, err := tx.embeddingModelIsActive(ctx, model.ID)
+			if err != nil {
+				return err
+			}
+			if inUse {
+				return adminaiconfigapp.Error{Kind: adminaiconfigapp.ErrConflict, Message: "模型列表包含当前向量模型，请先激活其他向量模型"}
 			}
 			if _, err := tx.DB().Exec(ctx, `DELETE FROM public.llm_models WHERE id = $1`, model.ID); err != nil {
 				return err
@@ -671,6 +733,36 @@ func (r AdminAIConfigRepository) withTx(ctx context.Context, fn func(AdminAIConf
 	return withRepositoryTx(ctx, "admin ai config", r.Repository, func(base Repository) AdminAIConfigRepository {
 		return AdminAIConfigRepository{Repository: base}
 	}, fn)
+}
+
+func (r AdminAIConfigRepository) embeddingModelIsActive(ctx context.Context, modelID string) (bool, error) {
+	return r.Exists(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM public.embedding_model_versions
+			WHERE llm_model_id = $1 AND status = 'active'
+		)`,
+		modelID,
+	)
+}
+
+func (r AdminAIConfigRepository) providerHasActiveEmbedding(ctx context.Context, providerID string) (bool, error) {
+	return r.Exists(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM public.embedding_model_versions v
+			JOIN public.llm_models m ON m.id = v.llm_model_id
+			WHERE m.provider_id = $1 AND v.status = 'active'
+		)`, providerID)
+}
+
+func (r AdminAIConfigRepository) lockEmbeddingActivation(ctx context.Context) error {
+	var ignored any
+	return r.DB().QueryRow(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, adminaiconfigapp.ResourceEmbeddingLogicalName).Scan(&ignored)
+}
+
+func activeEmbeddingSourceConflict() error {
+	return adminaiconfigapp.Error{Kind: adminaiconfigapp.ErrConflict, Message: "当前渠道或模型正被向量模型使用，请先激活其他向量模型"}
 }
 
 const llmModelSelectColumns = `

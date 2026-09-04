@@ -2,8 +2,10 @@
 
 > 状态：`TODO`
 > 里程碑：M3 MVP 可用
-> 前置依赖：[P2 入库与向量索引](02-ingestion-and-vector-indexing.md) `DONE`
+> 前置依赖：[P2-B 入库与向量索引](02-ingestion-and-vector-indexing.md) `DONE`，且 P2-A 后的暂停门已明确解除
 > 后续阶段：[P4 生产就绪](04-production-readiness.md)
+> 模型配置：查询 embedding/rerank 只使用管理员在管理端激活的模型版本；代码、环境变量和请求参数不得另选模型。
+> 执行约束：P2-A 完成后处于强制暂停；在管理员确认和项目负责人明确继续、且 P2-B 完成前，本阶段不得启动。
 
 ## 1. 阶段目标
 
@@ -26,7 +28,7 @@
 - `backend/internal/application/resource/`：检索用例、融合、引用和授权协作。
 - `backend/internal/adapter/postgres/`：FTS、粗授权候选、最终授权与 chunk 元数据读取。
 - `backend/internal/adapter/qdrant/`：Query/points search 和最小 payload filter。
-- embedding/rerank adapter：查询向量和可选重排。
+- embedding/rerank adapter：只读取管理员激活配置，生成查询向量和执行可选重排。
 - `backend/internal/application/session/`：窄 `KnowledgeRetriever` port、上下文预算和引用传递。
 - `backend/internal/adapter/llm/einoagent/`：只消费已授权、已预算的知识上下文。
 - `backend/cmd/api/`：装配、超时、降级和指标。
@@ -35,7 +37,7 @@
 ## 3. 工作清单
 
 - [ ] **P3-01 检索请求契约**：定义 query、knowledge base、过滤条件、TopK、超时、trace ID、降级标志和稳定错误响应。
-- [ ] **P3-02 查询分析与 embedding**：规范化查询，执行可取消的 query embedding；空、超长、模型失败和维度不符有明确行为。
+- [ ] **P3-02 查询分析与 embedding**：规范化查询，使用管理员激活版本执行可取消的 query embedding；空、超长、未配置、模型失败和维度不符有明确行为。
 - [ ] **P3-03 PostgreSQL 粗授权**：基于当前用户、默认租户/知识库、资源状态和 ACL 生成有界候选或 filter，不把它视为最终授权。
 - [ ] **P3-04 Qdrant 向量召回**：按 active generation、模型契约和已建立 payload index 的最小 filter 查询，限制 TopK、with_payload 字段和超时。
 - [ ] **P3-05 PostgreSQL FTS 召回**：对标题、正文/chunk 文本和必要元数据建立可解释搜索，使用与向量召回一致的资源范围。
@@ -56,6 +58,7 @@
 4. 未授权 chunk 的正文、标题、摘要、分数和存在性不得出现在响应或模型上下文。
 5. 引用打开时再次执行当前授权检查，不把旧检索结果当作长期访问凭证。
 6. 默认租户/知识库只用于 MVP 兼容，不能绕过 owner 和显式 ACL。
+7. 调用方不得指定 embedding/rerank 模型；无管理员 active 配置时按 D-008 降级，不使用代码或环境变量默认模型。
 
 ## 5. 质量与降级矩阵
 

@@ -32,6 +32,9 @@ type Service interface {
 	UpdateModel(context.Context, string, adminaiconfigapp.UpdateModelRequest) (adminaiconfigapp.LLMModel, error)
 	DeleteModel(context.Context, string) (adminaiconfigapp.SuccessResponse, error)
 	SetDefaultModel(context.Context, string) (adminaiconfigapp.SuccessResponse, error)
+	ListEmbeddingModelVersions(context.Context) (adminaiconfigapp.ListResponse[adminaiconfigapp.EmbeddingModelVersion], error)
+	TestEmbeddingModel(context.Context, adminaiconfigapp.ConfigureEmbeddingRequest) (adminaiconfigapp.EmbeddingProbeResult, error)
+	ActivateEmbeddingModel(context.Context, adminaiconfigapp.ConfigureEmbeddingRequest) (adminaiconfigapp.EmbeddingModelVersion, error)
 	ListAgentConfigs(context.Context) (adminaiconfigapp.ListResponse[adminaiconfigapp.AgentModelConfig], error)
 	ListAgentTypes(context.Context) (adminaiconfigapp.AgentTypesResponse, error)
 	GetAgentConfig(context.Context, string) (adminaiconfigapp.AgentModelConfig, error)
@@ -83,6 +86,9 @@ func (h *Handler) Register(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("PUT "+prefix+"/models/{model_id}", h.updateModel)
 	mux.HandleFunc("DELETE "+prefix+"/models/{model_id}", h.deleteModel)
 	mux.HandleFunc("POST "+prefix+"/models/{model_id}/set-default", h.setDefaultModel)
+	mux.HandleFunc("GET "+prefix+"/embeddings", h.listEmbeddingModels)
+	mux.HandleFunc("POST "+prefix+"/embeddings/test", h.testEmbeddingModel)
+	mux.HandleFunc("PUT "+prefix+"/embeddings/active", h.activateEmbeddingModel)
 	mux.HandleFunc("GET "+prefix+"/agents", h.listAgentConfigs)
 	mux.HandleFunc("GET "+prefix+"/agents/types", h.listAgentTypes)
 	mux.HandleFunc("GET "+prefix+"/agents/{agent_type}", h.getAgentConfig)
@@ -305,6 +311,50 @@ func (h *Handler) setDefaultModel(w http.ResponseWriter, r *http.Request) {
 	response, err := h.service.SetDefaultModel(r.Context(), r.PathValue("model_id"))
 	if err != nil {
 		h.writeServiceError(w, err, "设置默认模型失败")
+		return
+	}
+	httpjson.Write(w, http.StatusOK, response)
+}
+
+func (h *Handler) listEmbeddingModels(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireAdmin(w, r); !ok {
+		return
+	}
+	response, err := h.service.ListEmbeddingModelVersions(r.Context())
+	if err != nil {
+		h.writeServiceError(w, err, "获取向量模型配置失败")
+		return
+	}
+	httpjson.Write(w, http.StatusOK, response)
+}
+
+func (h *Handler) testEmbeddingModel(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireAdmin(w, r); !ok {
+		return
+	}
+	var request adminaiconfigapp.ConfigureEmbeddingRequest
+	if !decodeRequest(w, r, &request) {
+		return
+	}
+	response, err := h.service.TestEmbeddingModel(r.Context(), request)
+	if err != nil {
+		h.writeServiceError(w, err, "测试向量模型失败")
+		return
+	}
+	httpjson.Write(w, http.StatusOK, response)
+}
+
+func (h *Handler) activateEmbeddingModel(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireAdmin(w, r); !ok {
+		return
+	}
+	var request adminaiconfigapp.ConfigureEmbeddingRequest
+	if !decodeRequest(w, r, &request) {
+		return
+	}
+	response, err := h.service.ActivateEmbeddingModel(r.Context(), request)
+	if err != nil {
+		h.writeServiceError(w, err, "激活向量模型失败")
 		return
 	}
 	httpjson.Write(w, http.StatusOK, response)

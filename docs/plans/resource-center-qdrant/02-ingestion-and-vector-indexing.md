@@ -1,15 +1,18 @@
 # P2 入库与向量索引
 
-> 状态：`TODO`
-> 里程碑：M2 入库索引闭环
+> 状态：`IN_PROGRESS`
+> 里程碑：M2-A 管理员模型配置就绪 / M2-B 入库索引闭环
 > 前置依赖：[P1 数据与契约基础](01-data-and-contract-foundation.md) `DONE`
 > 后续阶段：[P3 检索与 RAG 集成](03-retrieval-and-rag-integration.md)
+> 当前子阶段：P2-A 管理员模型配置
+> 模型配置：Embedding 模型由管理员在管理端测试并激活；运行时只读取唯一 active 的不可变版本，不允许代码、环境变量或普通请求方覆盖。
+> 执行暂停：P2-A 验证完成后必须暂停；管理员确认 active 模型且项目负责人明确继续前，不得启动 P2-B 或任何后续阶段。
 
 ## 1. 阶段目标
 
-实现从资源上传到可检索向量的完整异步链路，并证明重复投递、进程崩溃、模型失败、删除、下线和重建最终都能收敛到 PostgreSQL 记录的状态。
+先以 P2-A 建立管理员控制的 embedding 模型配置、验证、激活和运行时解析闭环；P2-A 完成后强制暂停。只有暂停门明确解除，P2-B 才实现从资源上传到可检索向量的完整异步链路，并证明重复投递、进程崩溃、模型失败、删除、下线和重建最终都能收敛到 PostgreSQL 记录的状态。
 
-目标流程：
+P2-B 目标流程：
 
 ```text
 上传/登记 -> DRAFT/PROCESSING -> content_version + asset + outbox
@@ -21,30 +24,44 @@
 ## 2. 预计影响范围
 
 - `backend/internal/application/resource/`：入库编排、状态机、错误分类和对账用例。
+- `backend/internal/application/adminaiconfig/`、对应 HTTP/PostgreSQL adapter 与 migration：管理员模型测试、激活、不可变版本和运行时解析。
+- 管理端 AI 模型设置：选择已启用渠道模型，配置向量契约，执行测试并激活，查看版本历史。
 - `backend/internal/adapter/postgres/`：版本、任务、outbox、发布/下线的事务实现。
 - `backend/internal/adapter/storage/` 与上传模块：受控对象读取和元数据校验。
 - 文档解析 adapter：PDF、DOCX、TXT、MD 解析及资源限制。
-- embedding adapter：D-002 确认的 provider 和批量契约。
+- embedding adapter：只消费管理员激活的 D-002 provider/model/version 和批量契约。
 - `backend/internal/adapter/qdrant/`：collection/payload index ensure、point upsert、delete 和 generation 写入。
 - `backend/cmd/vector-worker/`：独立 worker 进程、健康检查和优雅停止。
 - 资源 HTTP/前端：202、处理状态、失败原因、重试和下线展示。
 
 ## 3. 工作清单
 
-- [ ] **P2-01 异步 API 契约**：上传/登记返回 202 和资源/version/job 标识；状态查询返回稳定状态、阶段、可重试性和脱敏错误码。
-- [ ] **P2-02 原子登记事务**：在同一 PostgreSQL 事务写入内容、不可变版本、资产、处理任务和 outbox；失败时不留下半成品。
-- [ ] **P2-03 独立 worker 入口**：新增 `backend/cmd/vector-worker`，完成配置、信号、健康、优雅停止和结构化日志。
-- [ ] **P2-04 任务领取与租约**：实现 `FOR UPDATE SKIP LOCKED` 或等价领取、owner、lease、heartbeat、超时接管和最大并发。
-- [ ] **P2-05 受控对象读取**：校验 storage key、MIME、大小、checksum、超时和取消，拒绝任意 URL/路径及过大响应。
-- [ ] **P2-06 文档解析**：实现 PDF、DOCX、TXT、MD 解析，处理空文档、扫描 PDF、加密文档、畸形文件、页数/字符限制和明确错误码。
-- [ ] **P2-07 文本规范化**：统一换行、Unicode、控制字符、空白和 checksum；保留可追溯页码/段落/标题元数据。
-- [ ] **P2-08 确定性切块**：实现稳定 chunk 顺序、边界、重叠、邻接关系和 deterministic chunk ID，同一版本重跑结果一致。
-- [ ] **P2-09 Embedding 批处理**：实现批量、超时、取消、有限重试、维度校验、速率/成本限制和脱敏错误。
-- [ ] **P2-10 Collection 与 generation 写入**：校验 vector config、payload index 和目标 generation；维度、metric、模型 revision 不一致时失败关闭。
-- [ ] **P2-11 幂等 upsert**：以确定性 point ID 和版本/generation/chunk payload 覆盖写入；重复 outbox、重复 job 和崩溃重放不增加重复 point。
-- [ ] **P2-12 发布、下线与删除**：只有完整 generation 可发布；下线/删除先更新 PostgreSQL 真相，再异步清理向量，读侧立即以 PostgreSQL 拒绝。
-- [ ] **P2-13 重试、dead 与背压**：区分可重试/永久错误，使用有限退避、available time、dead 状态、队列上限和告警，禁止无限热循环。
-- [ ] **P2-14 Reconcile 与重建**：通过 point ID、payload 和 count 实现 PostgreSQL 到 Qdrant 的差异扫描、缺失/多余 point 修复、generation 重建、进度游标和可重复运维命令。
+### 3.1 P2-A 管理员模型配置
+
+- [x] **P2-A-01 管理责任与契约**：复用管理员维护的渠道和模型，配置 revision、dimension、metric、tokenizer/normalization、max tokens、批量、超时和重试；普通用户与业务请求不能选择模型。
+- [x] **P2-A-02 不可变版本迁移**：将模型版本关联到管理员模型，保证同一逻辑用途最多一个 active 版本；激活新版本时原子退役旧版本，渠道凭据继续加密存储且不复制到版本记录。
+- [x] **P2-A-03 管理端 API**：提供版本列表、受控 `/v1/embeddings` 测试和验证后激活；校验响应顺序与实际维度，错误和响应不暴露 API key 或上游正文。
+- [x] **P2-A-04 管理端界面**：管理员可选择已启用渠道模型、编辑向量契约、测试连接、验证并激活及查看历史；未配置状态明确可见。
+- [ ] **P2-A-05 运行时与验收**：运行时只解析管理员激活版本；无 active 版本、渠道/模型停用或契约漂移时向量能力失败关闭。完成迁移、Mock/受控 live probe、权限负向、后端 test/vet/build、前端 lint/build 和文档验证后记录证据。
+
+P2-A 全部通过后立即暂停。暂停只允许补充证据和记录，不得开始以下 P2-B 任务。
+
+### 3.2 P2-B 入库索引闭环（暂停解除后）
+
+- [ ] **P2-B-01 异步 API 契约**：上传/登记返回 202 和资源/version/job 标识；状态查询返回稳定状态、阶段、可重试性和脱敏错误码。
+- [ ] **P2-B-02 原子登记事务**：在同一 PostgreSQL 事务写入内容、不可变版本、资产、处理任务和 outbox；失败时不留下半成品。
+- [ ] **P2-B-03 独立 worker 入口**：新增 `backend/cmd/vector-worker`，完成配置、信号、健康、优雅停止和结构化日志。
+- [ ] **P2-B-04 任务领取与租约**：实现 `FOR UPDATE SKIP LOCKED` 或等价领取、owner、lease、heartbeat、超时接管和最大并发。
+- [ ] **P2-B-05 受控对象读取**：校验 storage key、MIME、大小、checksum、超时和取消，拒绝任意 URL/路径及过大响应。
+- [ ] **P2-B-06 文档解析**：实现 PDF、DOCX、TXT、MD 解析，处理空文档、扫描 PDF、加密文档、畸形文件、页数/字符限制和明确错误码。
+- [ ] **P2-B-07 文本规范化**：统一换行、Unicode、控制字符、空白和 checksum；保留可追溯页码/段落/标题元数据。
+- [ ] **P2-B-08 确定性切块**：实现稳定 chunk 顺序、边界、重叠、邻接关系和 deterministic chunk ID，同一版本重跑结果一致。
+- [ ] **P2-B-09 Embedding 批处理**：使用管理员激活模型实现批量、超时、取消、有限重试、维度校验、速率/成本限制和脱敏错误。
+- [ ] **P2-B-10 Collection 与 generation 写入**：校验 vector config、payload index 和目标 generation；维度、metric、模型 revision 不一致时失败关闭。
+- [ ] **P2-B-11 幂等 upsert**：以确定性 point ID 和版本/generation/chunk payload 覆盖写入；重复 outbox、重复 job 和崩溃重放不增加重复 point。
+- [ ] **P2-B-12 发布、下线与删除**：只有完整 generation 可发布；下线/删除先更新 PostgreSQL 真相，再异步清理向量，读侧立即以 PostgreSQL 拒绝。
+- [ ] **P2-B-13 重试、dead 与背压**：区分可重试/永久错误，使用有限退避、available time、dead 状态、队列上限和告警，禁止无限热循环。
+- [ ] **P2-B-14 Reconcile 与重建**：通过 point ID、payload 和 count 实现 PostgreSQL 到 Qdrant 的差异扫描、缺失/多余 point 修复、generation 重建、进度游标和可重复运维命令。
 
 ## 4. 关键不变量
 
@@ -55,11 +72,14 @@
 5. 进程在每个外部副作用前后退出，下一次运行都能重试或对账收敛。
 6. 原文、密钥和完整 provider 响应不写入任务错误、日志或 Qdrant payload。
 7. 删除向量失败不回滚 PostgreSQL 下线；读侧依赖最终鉴权保证立即不可见。
+8. 模型选择权只属于管理员；worker、API、上传者和检索请求均不得传入或覆盖 provider、model、dimension 或 metric。
+9. 无 active 管理员模型配置时不创建 collection、不调用 embedding provider、不启动 P2-B 向量处理，并返回明确且脱敏的不可用状态。
 
 ## 5. 故障注入矩阵
 
 | 故障点 | 预期 |
 |---|---|
+| 无 active 模型或关联渠道/模型已停用 | 不创建 collection、不调用 provider，向量能力失败关闭并提示管理员配置 |
 | 业务事务提交前退出 | 无资源、版本、job 或 outbox 半记录 |
 | outbox 已提交、worker 未领取 | 后续轮询可领取 |
 | 领取后解析前退出 | lease 到期后可接管 |
@@ -81,6 +101,15 @@
 
 ## 7. 阶段退出条件
 
+### 7.1 P2-A 暂停门
+
+- 管理员模型列表、测试、激活、版本历史和运行时解析均通过权限、边界、错误及脱敏验证。
+- 管理员已在管理端完成至少一次真实测试和激活；证据只记录模型标识、revision、dimension、metric、时间和结果，不记录凭据。
+- P2-A 证据及 9 份阶段文档已同步；随后状态切换为暂停，等待管理员确认和项目负责人明确继续。
+- P2-A 完成不得被解释为 P2-B、P3 或其他后续阶段的启动授权。
+
+### 7.2 P2-B / M2 退出条件
+
 - 支持的四类文档均能从上传进入 active generation，并可追溯到资源、版本、资产、页码和 chunk。
 - 重复投递与重启不会产生重复向量，所有故障注入最终收敛。
 - 未发布、下线、删除和无权限资源不会因向量残留而可见。
@@ -92,13 +121,13 @@
 
 | 字段 | 内容 |
 |---|---|
-| 状态 | `TODO` |
-| 负责人 | 待定 |
-| 开始日期 |  |
+| 状态 | `IN_PROGRESS`（P2-A-01 至 P2-A-04 已完成；P2-A-05 等待真实管理员探针与激活） |
+| 负责人 | Codex（管理员模型选择待确认） |
+| 开始日期 | 2026-09-01 |
 | 完成日期 |  |
-| 验证命令 |  |
-| 验证结果 |  |
-| 覆盖率 |  |
-| 交付物 | 异步 API、worker、解析/切块/embedding/vector adapters、状态机、reconcile、前端状态 |
-| 回滚或降级验证 |  |
-| 遗留风险 |  |
+| 验证命令 | 隔离 PostgreSQL 迁移首次/重复执行；临时 application、repository、Vitest 验证；`go test ./... -count=1`、`go vet ./...`、`go build ./...`；`npm test -- --run --passWithNoTests`、`npm run lint`、`npm run build`；Playwright 桌面/移动端 Mock 流程；`git diff --check` |
+| 验证结果 | `0018` 首次应用并复跑无待应用版本；管理员权限、SSRF/脱敏、原子激活、并发与来源漂移失败关闭通过；Mock 浏览器完成列表、测试、激活和历史刷新。开发库尚无可用 embedding 模型和 active 版本，真实管理员 probe/activation 未执行，P2-B 未启动。 |
+| 覆盖率 | 临时后端 `embedding.go` statements 84.7%；临时前端 `EmbeddingConfigPanel.tsx` statements 83.33%、functions 86.11%、lines 84.73%；临时测试源码和报告均已删除。 |
+| 交付物 | P2-A：管理员模型测试/激活、不可变版本和运行时解析；P2-B：异步 API、worker、解析/切块/embedding/vector adapters、状态机、reconcile、前端状态 |
+| 回滚或降级验证 | 无 active、来源停用或配置漂移时运行时失败关闭；激活在单事务中退役旧版本并启用新版本。 |
+| 遗留风险 | 必须由管理员选择实际模型，确认合规与费用，并在管理端完成真实 probe/activation；随后 P2-A 才能结束并进入强制暂停。管理员确认 active 模型且项目负责人明确继续前，P2-B 保持未启动。 |

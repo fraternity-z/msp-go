@@ -104,7 +104,22 @@ func requestTimeout(cfg config.Config, r *http.Request) time.Duration {
 	if isLongRunningAIRequest(r, cfg.APIV1Prefix) {
 		return cfg.ExerciseGenTimeout
 	}
+	if isEmbeddingConfigRequest(r, cfg.APIV1Prefix) {
+		return embeddingConfigTimeout()
+	}
 	return cfg.RequestTimeout
+}
+
+// Keep below the default HTTP write deadline while allowing a 300-second probe plus response time.
+const embeddingConfigMaxTimeout = 5*time.Minute + 5*time.Second
+
+func embeddingConfigTimeout() time.Duration {
+	return embeddingConfigMaxTimeout
+}
+
+func isEmbeddingConfigRequest(r *http.Request, apiPrefix string) bool {
+	return (r.Method == http.MethodPost && r.URL.Path == apiPrefix+"/admin/ai-config/embeddings/test") ||
+		(r.Method == http.MethodPut && r.URL.Path == apiPrefix+"/admin/ai-config/embeddings/active")
 }
 
 func sessionChatTimeout(cfg config.Config) time.Duration {

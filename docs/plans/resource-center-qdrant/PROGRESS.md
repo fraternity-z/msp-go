@@ -1,23 +1,25 @@
 # 资源中心 Qdrant 专项总进度
 
 > 专项状态：`IN_PROGRESS`
-> 当前阶段：P2 入库与向量索引（待 D-002 决策）
-> 当前里程碑：M2 入库索引闭环
-> 最后更新：2026-09-01
+> 当前阶段：P2-A 管理员模型配置
+> 当前里程碑：M2-A 管理员模型配置就绪
+> 最后更新：2026-09-04
 > 维护入口：[目录说明](README.md)
+> 模型配置：Embedding 模型由管理员在管理端测试并激活；运行时只读取唯一 active 的不可变版本，代码、环境变量和普通请求方不得替代管理员选择。
+> 执行暂停：P2-A 完成后必须暂停，等待管理员确认已激活模型和项目负责人明确继续；不得自动进入 P2-B 或 P3-P6。
 
 ## 1. 总体摘要
 
-P0 已完成决策冻结和基线记录。P1 的 schema、application ports、配置、Qdrant adapter、Compose profile 和 API 装配已实现，并通过 Mock、静态、迁移及真实 Qdrant smoke；无鉴权开发模式和随机临时 API key 鉴权模式均完成 schema、payload index、幂等写入、过滤检索、负向校验、删除与清理，M1 已通过。五项依赖真实模型、语料、容量或运维责任人的决策仍按日期暂缓；进入 P2 前需要先关闭 D-002，冻结实际 embedding 契约。
+P0 已完成决策冻结和基线记录。P1 的 schema、application ports、配置、Qdrant adapter、Compose profile 和 API 装配已实现，并通过 Mock、静态、迁移及真实 Qdrant smoke，M1 已通过。P2-A 的管理员列表、测试、原子激活、不可变历史、运行时解析和管理界面已完成实现及受控验证；开发库尚无可用 embedding 模型和 active 版本，因此真实管理员 probe/activation 仍待执行，M2-A 不能通过。五项依赖真实模型、语料、容量或运维责任人的决策仍按日期暂缓。未激活模型时不得进入 P2-B；P2-A 完成后无条件暂停，后续恢复还需要管理员确认和项目负责人明确指令。
 
 | 指标 | 当前值 |
 |---|---:|
-| 总任务 | 88 |
-| 已完成任务 | 26 |
-| 总体进度 | 29.5% |
+| 总任务 | 93 |
+| 已完成任务 | 30 |
+| 总体进度 | 32.3% |
 | 开放决策 | 5 |
 | 开放高/严重风险 | 5 |
-| 当前阻断 | D-002 尚未确认 embedding provider、model、revision、dimension、metric、费用与数据合规边界；该选择会决定 P2 的 collection schema 和真实向量生成，不能由实现阶段静默假设 |
+| 当前执行门 | P2-A 可执行；P2-A 完成后立即暂停。P2-B 只有在管理员已测试并激活模型、D-002 记录已更新且项目负责人明确解除暂停后才能启动 |
 
 进度按已完成任务数计算，只用于反映执行量，不代替阶段门禁。阶段未满足退出条件时，即使任务勾选率为 100%，也不能标记 `DONE`。
 
@@ -27,8 +29,8 @@ P0 已完成决策冻结和基线记录。P1 的 schema、application ports、�
 |---|---|---:|---|---|---|
 | [P0 开发准备与决策冻结](00-development-readiness.md) | `DONE` | 14/14 | 无 | M0 | 决策、SLO、基线和风险边界冻结 |
 | [P1 数据与契约基础](01-data-and-contract-foundation.md) | `DONE` | 12/12 | P0 | M1 | schema、port、配置和开发 Qdrant 已通过实机验证 |
-| [P2 入库与向量索引](02-ingestion-and-vector-indexing.md) | `TODO` | 0/14 | P1 | M2 | 文档可异步、幂等地形成可检索向量 |
-| [P3 检索与 RAG 集成](03-retrieval-and-rag-integration.md) | `TODO` | 0/13 | P2 | M3 | 混合检索和 Session RAG MVP 可用 |
+| [P2 管理员模型配置、入库与向量索引](02-ingestion-and-vector-indexing.md) | `IN_PROGRESS` | 4/19 | P1 | M2-A/M2-B | P2-A 建立管理员配置闭环并暂停；解除暂停后 P2-B 才实现异步、幂等向量入库 |
+| [P3 检索与 RAG 集成](03-retrieval-and-rag-integration.md) | `TODO` | 0/13 | P2-B + 暂停门解除 | M3 | 混合检索和 Session RAG MVP 可用 |
 | [P4 生产就绪](04-production-readiness.md) | `TODO` | 0/12 | P3 | M4 | 安全、观测、恢复和生产拓扑通过验收 |
 | [P5 性能与质量](05-performance-and-quality.md) | `TODO` | 0/11 | P4 | M5 | 性能和检索质量达到已批准 SLO |
 | [P6 多租户、高可用与智能增强](06-multitenancy-ha-and-intelligence.md) | `TODO` | 0/12 | P5 | M6 | 组合权限、隔离、容灾和高级能力可用 |
@@ -39,7 +41,8 @@ P0 已完成决策冻结和基线记录。P1 的 schema、application ports、�
 |---|---|---|
 | M0 决策与基线就绪 | `DONE` | D-001、D-003、D-006、D-007、D-008 已决定；D-002、D-004、D-005、D-009、D-010 已记录合规暂缓和复核日期，代表性基线与威胁边界可供后续复用 |
 | M1 基础契约就绪 | `DONE` | forward migration、application ports、配置校验、Qdrant adapter、Compose/live health/schema、鉴权与完整读写清理 smoke 均通过 |
-| M2 入库索引闭环 | `TODO` | 上传到可检索向量全链路通过，崩溃重试、幂等、删除和对账行为可证明 |
+| M2-A 管理员模型配置就绪 | `IN_PROGRESS` | 管理员可选择已启用渠道模型、执行真实维度探测并原子激活唯一 active 不可变版本；运行时可脱敏解析配置。通过后必须暂停 |
+| M2-B 入库索引闭环 | `TODO` | 暂停门已明确解除；上传到可检索向量全链路通过，崩溃重试、幂等、删除和对账行为可证明 |
 | M3 MVP 可用 | `TODO` | 混合检索、PostgreSQL 最终鉴权、引用、Session 集成和 FTS 降级通过 |
 | M4 生产就绪 | `TODO` | 生产拓扑、安全审计、告警、备份恢复、重建和故障演练通过 |
 | M5 性能质量达标 | `TODO` | 代表性负载下 P95/P99/QPS 和离线检索指标达到批准阈值 |
@@ -52,7 +55,7 @@ P0 已完成决策冻结和基线记录。P1 的 schema、application ports、�
 | ID | 决策 | 状态 | 负责人 | 截止 | 结论或记录 |
 |---|---|---|---|---|---|
 | D-001 | MVP 支持的 MIME、单文件大小、页数和批量上限 | `DECIDED` | Codex | 2026-09-01 | PDF/DOCX/TXT/MD；50 MiB、200 页、200 万字符、单批 10 个、120 秒；禁压缩包/扫描 PDF |
-| D-002 | embedding provider、model、revision、dim、metric 与合规边界 | `DEFERRED` | 项目负责人/安全评审 | 2026-09-08 | 供应商无关适配器先行；需确认实际模型、维度、合规和费用后再进入 P2 |
+| D-002 | embedding provider、model、revision、dim、metric 与合规边界 | `DEFERRED` | 管理员/安全评审 | 2026-09-08 | P2-A 提供管理端测试与激活闭环；实际值由管理员配置，不写死于代码或环境变量。管理员激活并确认合规/费用前不得进入 P2-B |
 | D-003 | collection、payload index、alias、shard key 命名、共享粒度与 placement 规则 | `DECIDED` | Codex | 2026-09-01 | 共享 dense collection、COSINE、强制 payload index；MVP 无 alias/custom shard |
 | D-004 | 质量 SLO、评测集、Recall/MRR/nDCG 与引用正确率阈值 | `DEFERRED` | 产品/教学评审 | 2026-09-08 | 补代表性语料和标注责任后冻结；此前不宣称质量达标 |
 | D-005 | 性能 SLO、容量区间、并发、P95/P99 与成本预算 | `DEFERRED` | 运维/产品评审 | 2026-09-08 | 补目标负载和预算后冻结；开发小数据只做可执行性验证 |
@@ -68,7 +71,7 @@ P0 已完成决策冻结和基线记录。P1 的 schema、application ports、�
 |---|---|---|---|---|
 | R-001 | PostgreSQL 与 Qdrant 状态漂移，导致旧版本向量被检索 | 高 | `OPEN` | transactional outbox、可靠 job、确定性 upsert、generation 切换和 reconcile |
 | R-002 | Qdrant payload 过滤或缓存错误导致越权检索 | 严重 | `OPEN` | PostgreSQL 粗筛加最终鉴权；无最终授权结果不得进入上下文 |
-| R-003 | embedding revision、维度、metric 或 payload schema 漂移污染同一 collection | 高 | `OPEN` | 模型契约、collection 分代、payload index 校验、蓝绿构建和原子切换 |
+| R-003 | embedding revision、维度、metric 或 payload schema 漂移污染同一 collection | 高 | `OPEN` | 管理员测试后原子激活不可变模型版本；运行时只读 active 版本，并配合 collection 分代、payload index 校验、蓝绿构建和原子切换 |
 | R-004 | 解析器、embedding 或 Qdrant 长时间失败造成任务堆积 | 高 | `OPEN` | lease、heartbeat、有限重试、dead、告警、背压和 FTS 降级 |
 | R-005 | 当前“创建即 PUBLISHED”与异步发布语义冲突 | 高 | `OPEN` | P0 冻结兼容策略，P1/P2 明确状态机、迁移和旧客户端行为 |
 | R-006 | 当前租户模型不完整，却被误宣称为完整多租户隔离 | 严重 | `OPEN` | MVP 使用显式默认租户/知识库；P6 验收前不承诺完整多租户 |
@@ -80,6 +83,7 @@ P0 已完成决策冻结和基线记录。P1 的 schema、application ports、�
 | 门禁 | 状态 | 证据要求 |
 |---|---|---|
 | PostgreSQL 是业务与权限唯一真相 | `TODO` | 所有发布、删除、版本和最终授权测试均以 PostgreSQL 结果为准 |
+| 管理员模型配置 | `IN_PROGRESS` | 模型只能由管理员在管理端测试并激活；运行时无 active 版本时禁用向量链路，不回退到代码或环境变量默认值 |
 | Qdrant client 隔离 | `TODO` | client import 只存在于 `backend/internal/adapter/qdrant` 及其装配边界 |
 | 幂等与崩溃恢复 | `TODO` | 同一版本重复投递不产生重复 chunk；关键故障点重启后可收敛 |
 | 无权限泄露 | `TODO` | 角色、所有者、默认知识库、删除/下线和缓存命中路径均有负向验证 |
@@ -99,15 +103,17 @@ P0 已完成决策冻结和基线记录。P1 的 schema、application ports、�
 | 2026-09-01 | P1 契约实现 | 本地工作区 | 全量 Go test/vet/build、前端 lint/build、隔离 PostgreSQL 迁移首次/重复执行、临时 `httptest` adapter smoke（85.8% statements）、`docker compose --profile vector config --quiet`、`git diff --check` | migration、ports、配置、adapter、Compose profile 和装配完成；兼容旧 `contents` 写入的默认租户验证通过；Compose 配置解析通过；Docker CLI/Compose 可调用但 Docker Desktop Linux 引擎因 WSL 运行时错误未启动，live smoke 待修复运行时或外部环境 | `01-data-and-contract-foundation.md` 第 8 节 |
 | 2026-09-01 | P1 live smoke 环境诊断 | 本地工作区 | `docker desktop status`；Docker Desktop 诊断日志；`wsl.exe -l -v --all` | 状态持续为 `starting`；日志确认 `docker-desktop` 发行版缺失，并在导入 `C:\\Program Files\\WSL\\system.vhd` 时返回 `Wsl/Service/RegisterDistro/CreateVm/MountDisk/HCS/ERROR_NOT_FOUND`。未执行 WSL 安装、注销或重置等宿主机变更 | 本次任务执行记录 |
 | 2026-09-01 | P1 Qdrant 实机验收 | Docker Desktop/WSL2、`qdrant/qdrant:v1.14.1` | Compose config/up/health；临时 Go live smoke；后端全量 test/vet/build；前端 lint/build | 容器达到 `healthy`；无鉴权和随机临时 API key 模式均通过 collection/schema、5 个 payload index、重复 upsert、过滤检索、schema mismatch、按 ID/过滤删除及清理；修复无 `curl` healthcheck、空 key 鉴权语义和 payload index REST 契约；临时源码/collection 已删除且 key 未持久化，M1 通过 | `01-data-and-contract-foundation.md` 第 8 节 |
+| 2026-09-01 | P2-A 文档执行门统一 | 本地工作区 | 9 文件口径/任务计数/旧表述/敏感信息检查；`git diff --check`；后端 `go test ./... -count=1`、`go build ./...`；前端 `npm test -- --run --passWithNoTests`、`npm run lint`、`npm run build` | 9 份阶段文档均明确管理员模型配置与 P2-A 后强制暂停；任务总数校准为 93，旧冲突表述和敏感信息无残留；测试、lint、构建与差异检查通过 | 本次任务执行记录 |
+| 2026-09-04 | P2-A 实现与受控验证 | 本地工作区、隔离 PostgreSQL、Playwright Mock | `0018` 首次/重复迁移；临时 application/repository/Vitest 测试；后端 test/vet/build；前端空测试集/lint/build；桌面与移动端列表、测试、激活和历史刷新；敏感信息与差异检查 | P2-A-01 至 P2-A-04 完成；新增逻辑临时覆盖率均超过 80%，迁移、权限、SSRF/脱敏、原子激活、并发和来源漂移失败关闭通过，临时测试已删除。开发库没有 embedding 模型或 active 版本，真实管理员 probe/activation 尚未执行，M2-A 保持 `IN_PROGRESS`，P2-B 未启动 | `02-ingestion-and-vector-indexing.md` 第 8 节及本次任务执行记录 |
 
 不在此表粘贴密钥、Token、密码、真实 DSN 或受保护业务数据。长日志保存到受控构建系统，表中只保留摘要和链接。
 
 ## 8. 近期行动
 
-1. 由项目负责人/安全评审关闭 D-002，明确 embedding provider、model、revision、dimension、metric、费用和数据合规边界。
-2. D-002 冻结后启动 P2，先复核 Git 状态、P2 文档、现有 worker/repository/AI adapter 的至少 3 个类似实现和实际调用链。
-3. 固定代表性文档语料、查询集和权限矩阵，记录当前 PostgreSQL 搜索与 Session 基线。
-4. 按 P2 的异步、幂等、崩溃恢复和清理门禁小步实现，每个阶段独立验证、更新文档并提交。
+1. 由管理员在管理端新增或选择已启用的 embedding 渠道模型，测试实际返回维度并激活；证据只记录非敏感模型契约和结果。
+2. 安全评审同步确认外部数据合规和费用，将 D-002 更新为 `DECIDED`；真实 probe/activation 通过后补齐 P2-A-05 并立即暂停。
+3. 暂停期间只补充证据和记录，不实现 P2-B、P3 或其他后续能力。
+4. 只有管理员确认 active 模型且项目负责人明确下达继续指令后，才解除暂停并启动 P2-B；启动时重新核对 Git 状态、阶段文档、至少 3 个类似实现和实际调用链。
 
 ## 9. 更新记录
 
@@ -118,4 +124,6 @@ P0 已完成决策冻结和基线记录。P1 的 schema、application ports、�
 | 2026-08-31 | 完成 P0-01 静态基线检查点，补充阶段计划、验收命令、待确认决策矩阵和 Docker 环境阻断；P0 仍未通过门禁。 |
 | 2026-09-01 | 冻结 P0 工程决策和暂缓项，P0 通过 P1 前置门，启动 P1；Docker CLI 缺失继续作为 live Qdrant smoke 阻断。 |
 | 2026-09-01 | 完成 P1 基础契约实现和 Mock 验证；M1 保持 `IN_PROGRESS`，Docker Desktop Linux 引擎的 WSL 挂载错误已定位，等待运行时修复或外部 Docker/Qdrant live smoke 后再决定是否进入 P2。 |
-| 2026-09-01 | Docker Desktop/WSL2 恢复后完成 P1 Qdrant 实机验收，修复 Compose health/API key 与 payload index 契约问题；P1 标记 `DONE`、M1 通过，下一阶段等待 D-002 embedding 契约冻结。 |
+| 2026-09-01 | Docker Desktop/WSL2 恢复后完成 P1 Qdrant 实机验收，修复 Compose health/API key 与 payload index 契约问题；P1 标记 `DONE`、M1 通过。当时记录为等待 D-002，后由下一条 P2-A/P2-B 拆分决策取代。 |
+| 2026-09-01 | 将 P2 拆分为 P2-A 管理员模型配置与 P2-B 入库索引；明确实际 embedding 模型只能由管理员在管理端测试并激活，并设置 P2-A 完成后的强制暂停门。 |
+| 2026-09-04 | 完成 P2-A-01 至 P2-A-04 的实现、迁移、临时覆盖率、并发和 Mock 浏览器验证；因开发库无 embedding 模型，真实管理员 probe/activation 与 D-002 仍待完成，M2-A 保持进行中且 P2-B 未启动。 |
