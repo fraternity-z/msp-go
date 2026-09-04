@@ -20,7 +20,7 @@
 
 ### 资源中心向量检索
 
-- [ ] 按 P0-P6 分阶段接入 Qdrant：P0/P1 已完成，M1 通过；P2-A 的管理员 embedding 列表、测试、原子激活、不可变历史、失败关闭运行时和界面已完成实现及受控验证，开发库尚无可用 embedding 模型和 active 版本。下一步由管理员完成真实 probe/activation，并确认 D-002 的模型契约、费用与数据合规；随后立即进入强制暂停，项目负责人明确继续前不得启动 P2-B。D-004、D-005、D-009、D-010 继续按日期复核，详见 [专项进度](plans/resource-center-qdrant/PROGRESS.md)。
+- [ ] 按 P0-P6 分阶段接入 Qdrant：P0/P1 已完成，M1 通过；P2-A/M2-A 已完成，管理员已真实验证并激活 `voyage-4-large`（系统版本 `auto-v2-e5ec9a9f2abaa010`、1024 维、Cosine、`send_dimensions=false`、批量/超时/重试为 32/30/3）。通用探针移除可选 `encoding_format` 后按现行完整契约和模型优先流程复测成功。现进入强制暂停：D-002 的费用与数据合规仍未明确确认，Qdrant 当前不可用，P2-B/P3 未实施；项目负责人明确继续前不得启动后续阶段。D-004、D-005、D-009、D-010 继续按日期复核，详见 [专项进度](plans/resource-center-qdrant/PROGRESS.md)。
 
 ### AI 学习闭环
 

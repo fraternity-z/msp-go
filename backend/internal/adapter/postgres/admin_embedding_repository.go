@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -72,7 +73,7 @@ func (r AdminAIConfigRepository) ActivateEmbeddingModelVersion(ctx context.Conte
 		if found && !embeddingVersionMatchesInput(existing, input) {
 			return adminaiconfigapp.Error{
 				Kind:    adminaiconfigapp.ErrConflict,
-				Message: "相同 provider、model 和 revision 已存在不同向量契约，请更新 revision 后重试",
+				Message: "相同 provider、model 和 revision 已存在不同向量契约或来源，请更新 revision 后重试",
 			}
 		}
 		if _, err := tx.DB().Exec(ctx, `
@@ -312,7 +313,8 @@ func embeddingVersionMatchesInput(version adminaiconfigapp.EmbeddingModelVersion
 		version.SendDimensions == input.SendDimensions &&
 		version.BatchSize == input.BatchSize &&
 		version.TimeoutSeconds == input.TimeoutSeconds &&
-		version.MaxRetries == input.MaxRetries
+		version.MaxRetries == input.MaxRetries &&
+		reflect.DeepEqual(version.Metadata, input.Metadata)
 }
 
 func stringPointerEqual(left *string, right *string) bool {

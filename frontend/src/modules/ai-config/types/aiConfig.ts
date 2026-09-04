@@ -227,16 +227,16 @@ export interface EmbeddingModelVersion {
 
 export interface ConfigureEmbeddingRequest {
   model_id: string;
-  revision: string;
-  dimension: number;
-  metric: EmbeddingMetric;
-  tokenizer: string;
-  normalization: string;
-  max_tokens: number;
-  send_dimensions: boolean;
-  batch_size: number;
-  timeout_seconds: number;
-  max_retries: number;
+  revision?: string;
+  dimension?: number;
+  metric?: EmbeddingMetric;
+  tokenizer?: string;
+  normalization?: string;
+  max_tokens?: number;
+  send_dimensions?: boolean;
+  batch_size?: number;
+  timeout_seconds?: number;
+  max_retries?: number;
 }
 
 export interface EmbeddingProbeResult {
@@ -246,6 +246,7 @@ export interface EmbeddingProbeResult {
   model_id: string;
   provider_model: string;
   observed_dimension: number;
+  resolved_revision: string;
 }
 
 // ========== 智能体配置类型 ==========

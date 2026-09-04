@@ -1,6 +1,6 @@
 # 系统架构
 
-本文描述 MathStudyPlatform 当前有效的技术架构。未完成工作见 [项目待办](../TODO.md)，历史时间点资料见 [归档索引](../archive/README.md)。资源中心接入 Qdrant 的完整目标架构见 [资源中心 PostgreSQL + Qdrant 双数据库方案](resource-center-qdrant-architecture.md)。当前 P1 已加入可选 Qdrant adapter 和健康检查；P2-A 已实现管理员专用的 embedding 测试、唯一 active 不可变版本激活、历史查询和失败关闭运行时解析，但开发库尚未完成真实模型激活。P2-B/P3 入库与检索尚未启动，Qdrant 仍不属于默认业务运行链路。
+本文描述 MathStudyPlatform 当前有效的技术架构。未完成工作见 [项目待办](../TODO.md)，历史时间点资料见 [归档索引](../archive/README.md)。资源中心接入 Qdrant 的完整目标架构见 [资源中心 PostgreSQL + Qdrant 双数据库方案](resource-center-qdrant-architecture.md)。当前 P1 已加入可选 Qdrant adapter 和健康检查；P2-A/M2-A 已完成管理员专用 embedding 测试、唯一 active 不可变版本激活、历史查询和失败关闭运行时解析，自动 revision 绑定渠道/模型来源版本与完整契约，同一 revision 不允许改写来源或参数。当前 active 契约为 `voyage-4-large` 的系统版本 `auto-v2-e5ec9a9f2abaa010`（1024 维、Cosine、`send_dimensions=false`、32/30/3）。通用探针省略可选 `encoding_format` 后按完整契约真实复测成功。P2 已进入强制暂停，D-002 的费用与数据合规仍待确认；Qdrant 当前不可用，P2-B/P3 入库与检索尚未启动，Qdrant 仍不属于默认业务运行链路。
 
 ## 系统边界
 

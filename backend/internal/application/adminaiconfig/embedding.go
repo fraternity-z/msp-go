@@ -3,6 +3,7 @@ package adminaiconfig
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,9 +24,13 @@ const (
 
 	defaultEmbeddingBatchSize = 32
 	defaultEmbeddingTimeout   = 30
+	defaultEmbeddingMaxTokens = 8192
 	maxEmbeddingDimension     = 65536
 	maxEmbeddingTokens        = 10_000_000
 	maxEmbeddingResponseBytes = 16 << 20
+	maxEmbeddingProbeRetries  = 20
+	embeddingProbeRetryDelay  = 250 * time.Millisecond
+	embeddingProbeMaxDelay    = 2 * time.Second
 	providerUpdatedAtMetadata = "provider_updated_at"
 	modelUpdatedAtMetadata    = "model_updated_at"
 )
@@ -125,6 +130,7 @@ type EmbeddingProbeResult struct {
 	ModelID           string  `json:"model_id"`
 	ProviderModel     string  `json:"provider_model"`
 	ObservedDimension int     `json:"observed_dimension"`
+	ResolvedRevision  string  `json:"resolved_revision"`
 }
 
 type normalizedEmbeddingRequest struct {
@@ -173,6 +179,8 @@ func (s *Service) ActivateEmbeddingModel(ctx context.Context, request ConfigureE
 	if !probe.Success {
 		return EmbeddingModelVersion{}, badRequest("embedding 模型验证失败: " + probe.Message)
 	}
+	normalized.Dimension = probe.ObservedDimension
+	normalized.Revision = probe.ResolvedRevision
 	id, err := s.newID()
 	if err != nil {
 		return EmbeddingModelVersion{}, err
@@ -286,16 +294,25 @@ func normalizeEmbeddingRequest(request ConfigureEmbeddingRequest) (normalizedEmb
 	if request.ModelID == "" {
 		return normalizedEmbeddingRequest{}, badRequest("model_id 不能为空")
 	}
-	if request.Revision == "" || len([]rune(request.Revision)) > 100 {
-		return normalizedEmbeddingRequest{}, badRequest("revision 长度必须在 1 到 100 之间")
+	if len([]rune(request.Revision)) > 100 {
+		return normalizedEmbeddingRequest{}, badRequest("revision 长度不能超过 100")
 	}
-	if request.Dimension < 1 || request.Dimension > maxEmbeddingDimension {
-		return normalizedEmbeddingRequest{}, badRequest("dimension 必须在 1 到 65536 之间")
+	if request.Dimension < 0 || request.Dimension > maxEmbeddingDimension {
+		return normalizedEmbeddingRequest{}, badRequest("dimension 必须在 0 到 65536 之间")
+	}
+	if request.SendDimensions && request.Dimension == 0 {
+		return normalizedEmbeddingRequest{}, badRequest("send_dimensions 为 true 时 dimension 必须显式大于 0")
+	}
+	if request.Metric == "" {
+		request.Metric = EmbeddingMetricCosine
 	}
 	switch request.Metric {
 	case EmbeddingMetricCosine, EmbeddingMetricDot, EmbeddingMetricEuclid:
 	default:
 		return normalizedEmbeddingRequest{}, badRequest("metric 仅支持 cosine、dot 或 euclid")
+	}
+	if request.MaxTokens == 0 {
+		request.MaxTokens = defaultEmbeddingMaxTokens
 	}
 	if request.MaxTokens < 1 || request.MaxTokens > maxEmbeddingTokens {
 		return normalizedEmbeddingRequest{}, badRequest("max_tokens 必须在 1 到 10000000 之间")
@@ -312,6 +329,9 @@ func normalizeEmbeddingRequest(request ConfigureEmbeddingRequest) (normalizedEmb
 	tokenizer, err := optionalEmbeddingString(request.Tokenizer, 100, "tokenizer")
 	if err != nil {
 		return normalizedEmbeddingRequest{}, err
+	}
+	if strings.TrimSpace(request.Normalization) == "" {
+		request.Normalization = "unicode_nfc"
 	}
 	normalization, err := optionalEmbeddingString(request.Normalization, 50, "normalization")
 	if err != nil {
@@ -335,13 +355,20 @@ func optionalEmbeddingString(value string, maxRunes int, field string) (*string,
 	return &value, nil
 }
 
+type embeddingProbeAttemptResult struct {
+	dimension int
+	message   string
+	retryable bool
+	attempts  int
+}
+
 func (s *Service) probeEmbeddingModel(ctx context.Context, request normalizedEmbeddingRequest, model LLMModel, provider StoredProvider) (EmbeddingProbeResult, error) {
 	result := EmbeddingProbeResult{ModelID: model.ID, ProviderModel: model.ModelID}
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
-	apiKey, err := s.nextProviderAPIKey(provider.ID, provider.EncryptedAPIKey)
-	if err != nil {
+	keyring, err := s.decryptProviderKeyring(provider.EncryptedAPIKey)
+	if err != nil || len(keyring.Keys) == 0 {
 		result.Message = "API 密钥不可用"
 		return result, nil
 	}
@@ -350,9 +377,8 @@ func (s *Service) probeEmbeddingModel(ctx context.Context, request normalizedEmb
 		return EmbeddingProbeResult{}, err
 	}
 	payload := map[string]any{
-		"model":           model.ModelID,
-		"input":           []string{"MathStudyPlatform embedding configuration probe"},
-		"encoding_format": "float",
+		"model": model.ModelID,
+		"input": []string{"MathStudyPlatform embedding configuration probe"},
 	}
 	if request.SendDimensions {
 		payload["dimensions"] = request.Dimension
@@ -363,12 +389,6 @@ func (s *Service) probeEmbeddingModel(ctx context.Context, request normalizedEmb
 	}
 	probeCtx, cancel := context.WithTimeout(ctx, time.Duration(request.TimeoutSeconds)*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(probeCtx, http.MethodPost, joinProviderURL(baseURL, "/v1/embeddings"), bytes.NewReader(body))
-	if err != nil {
-		return EmbeddingProbeResult{}, err
-	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Content-Type", "application/json")
 	startedAt := time.Now()
 	client := s.httpClient
 	if httpClient, ok := client.(*http.Client); ok {
@@ -376,23 +396,94 @@ func (s *Service) probeEmbeddingModel(ctx context.Context, request normalizedEmb
 		clone.Timeout = time.Duration(request.TimeoutSeconds) * time.Second
 		client = &clone
 	}
+	endpoint := joinProviderURL(baseURL, "/v1/embeddings")
+	observedDimension := 0
+	remainingRetries := maxEmbeddingProbeRetries
+	for keyIndex, apiKey := range keyring.Keys {
+		keyRetries := min(request.MaxRetries, remainingRetries)
+		attempt, err := probeEmbeddingAPIKey(probeCtx, client, endpoint, body, apiKey, keyRetries)
+		result.LatencyMS = float64(time.Since(startedAt).Microseconds()) / 1000
+		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return result, ctxErr
+			}
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(probeCtx.Err(), context.DeadlineExceeded) {
+				result.Message = "请求超时"
+				return result, nil
+			}
+			return result, err
+		}
+		remainingRetries -= max(attempt.attempts-1, 0)
+		if attempt.message != "" {
+			if len(keyring.Keys) > 1 {
+				result.Message = fmt.Sprintf("第 %d/%d 个 API 密钥验证失败：%s", keyIndex+1, len(keyring.Keys), attempt.message)
+			} else {
+				result.Message = attempt.message
+			}
+			return result, nil
+		}
+		if request.Dimension > 0 && attempt.dimension != request.Dimension {
+			result.Message = fmt.Sprintf("返回维度为 %d，与配置的 %d 不一致", attempt.dimension, request.Dimension)
+			return result, nil
+		}
+		if observedDimension == 0 {
+			observedDimension = attempt.dimension
+			continue
+		}
+		if attempt.dimension != observedDimension {
+			result.Message = "不同 API 密钥返回的向量维度不一致"
+			return result, nil
+		}
+	}
+	result.ObservedDimension = observedDimension
+	result.ResolvedRevision = resolvedEmbeddingRevision(request, model, provider, observedDimension)
+	result.Success = true
+	result.Message = "embedding 模型验证通过"
+	if len(keyring.Keys) > 1 {
+		result.Message = fmt.Sprintf("embedding 模型验证通过（已检查 %d 个 API 密钥）", len(keyring.Keys))
+	}
+	return result, nil
+}
+
+func probeEmbeddingAPIKey(ctx context.Context, client HTTPDoer, endpoint string, body []byte, apiKey string, maxRetries int) (embeddingProbeAttemptResult, error) {
+	var result embeddingProbeAttemptResult
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		current, err := performEmbeddingProbe(ctx, client, endpoint, body, apiKey)
+		if err != nil {
+			return embeddingProbeAttemptResult{}, err
+		}
+		current.attempts = attempt + 1
+		result = current
+		if current.message == "" || !current.retryable || attempt == maxRetries {
+			return result, nil
+		}
+		if err := waitForEmbeddingProbeRetry(ctx, attempt); err != nil {
+			return embeddingProbeAttemptResult{}, err
+		}
+	}
+	return result, nil
+}
+
+func performEmbeddingProbe(ctx context.Context, client HTTPDoer, endpoint string, body []byte, apiKey string) (embeddingProbeAttemptResult, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return embeddingProbeAttemptResult{}, err
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
 	resp, err := client.Do(req)
-	result.LatencyMS = float64(time.Since(startedAt).Microseconds()) / 1000
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return result, ctxErr
+			return embeddingProbeAttemptResult{}, ctxErr
 		}
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(probeCtx.Err(), context.DeadlineExceeded) {
-			result.Message = "请求超时"
-		} else {
-			result.Message = "无法连接上游 embeddings 接口"
-		}
-		return result, nil
+		return embeddingProbeAttemptResult{message: "无法连接上游 embeddings 接口", retryable: true}, nil
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		result.Message = fmt.Sprintf("上游返回 HTTP %d", resp.StatusCode)
-		return result, nil
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return embeddingProbeAttemptResult{
+			message:   fmt.Sprintf("上游返回 HTTP %d", resp.StatusCode),
+			retryable: resp.StatusCode == http.StatusRequestTimeout || resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= http.StatusInternalServerError,
+		}, nil
 	}
 	var response struct {
 		Data []struct {
@@ -401,19 +492,81 @@ func (s *Service) probeEmbeddingModel(ctx context.Context, request normalizedEmb
 		} `json:"data"`
 	}
 	if err := httpjson.DecodeLimited(resp.Body, maxEmbeddingResponseBytes, &response); err != nil {
-		result.Message = "embeddings 响应格式无效"
-		return result, nil
+		return embeddingProbeAttemptResult{message: "embeddings 响应格式无效"}, nil
 	}
 	if len(response.Data) != 1 || response.Data[0].Index != 0 || len(response.Data[0].Embedding) == 0 {
-		result.Message = "embeddings 响应顺序或向量为空"
-		return result, nil
+		return embeddingProbeAttemptResult{message: "embeddings 响应顺序或向量为空"}, nil
 	}
-	result.ObservedDimension = len(response.Data[0].Embedding)
-	if result.ObservedDimension != request.Dimension {
-		result.Message = fmt.Sprintf("返回维度为 %d，与配置的 %d 不一致", result.ObservedDimension, request.Dimension)
-		return result, nil
+	dimension := len(response.Data[0].Embedding)
+	if dimension > maxEmbeddingDimension {
+		return embeddingProbeAttemptResult{message: fmt.Sprintf("返回维度 %d 超出支持范围", dimension)}, nil
 	}
-	result.Success = true
-	result.Message = "embedding 模型验证通过"
-	return result, nil
+	return embeddingProbeAttemptResult{dimension: dimension}, nil
+}
+
+func waitForEmbeddingProbeRetry(ctx context.Context, attempt int) error {
+	delay := embeddingProbeRetryDelay * time.Duration(1<<min(attempt, 3))
+	if delay > embeddingProbeMaxDelay {
+		delay = embeddingProbeMaxDelay
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func resolvedEmbeddingRevision(request normalizedEmbeddingRequest, model LLMModel, provider StoredProvider, dimension int) string {
+	if request.Revision != "" {
+		return request.Revision
+	}
+	tokenizer := ""
+	if request.TokenizerValue != nil {
+		tokenizer = *request.TokenizerValue
+	}
+	normalization := ""
+	if request.NormalizationValue != nil {
+		normalization = *request.NormalizationValue
+	}
+	contract := struct {
+		ProviderID        string `json:"provider_id"`
+		Provider          string `json:"provider"`
+		ProviderBaseURL   string `json:"provider_base_url"`
+		ProviderUpdatedAt string `json:"provider_updated_at"`
+		LLMModelID        string `json:"llm_model_id"`
+		Model             string `json:"model"`
+		ModelUpdatedAt    string `json:"model_updated_at"`
+		Dimension         int    `json:"dimension"`
+		Metric            string `json:"metric"`
+		Tokenizer         string `json:"tokenizer"`
+		Normalization     string `json:"normalization"`
+		MaxTokens         int    `json:"max_tokens"`
+		SendDimensions    bool   `json:"send_dimensions"`
+		BatchSize         int    `json:"batch_size"`
+		TimeoutSeconds    int    `json:"timeout_seconds"`
+		MaxRetries        int    `json:"max_retries"`
+	}{
+		ProviderID:        provider.ID,
+		Provider:          provider.Code,
+		ProviderBaseURL:   strings.TrimRight(strings.TrimSpace(provider.BaseURL), "/"),
+		ProviderUpdatedAt: provider.UpdatedAt.UTC().Format(time.RFC3339Nano),
+		LLMModelID:        model.ID,
+		Model:             model.ModelID,
+		ModelUpdatedAt:    model.UpdatedAt.UTC().Format(time.RFC3339Nano),
+		Dimension:         dimension,
+		Metric:            request.Metric,
+		Tokenizer:         tokenizer,
+		Normalization:     normalization,
+		MaxTokens:         request.MaxTokens,
+		SendDimensions:    request.SendDimensions,
+		BatchSize:         request.BatchSize,
+		TimeoutSeconds:    request.TimeoutSeconds,
+		MaxRetries:        request.MaxRetries,
+	}
+	payload, _ := json.Marshal(contract)
+	sum := sha256.Sum256(payload)
+	return fmt.Sprintf("auto-v2-%x", sum[:8])
 }

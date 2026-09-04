@@ -98,6 +98,58 @@ final result: passed
 
 ---
 
+# Embedding Configuration Design QA
+
+## Comparison Target
+
+- Source visual truth: supplied reference image `codex-clipboard-0697e733-113a-467c-8dd5-aaf4cb67f8bf.png`.
+- Desktop active state: local QA artifact `output/playwright/embedding-config-qa/desktop-panel-active-collapsed.png` (not committed).
+- Desktop successful-probe state: local QA artifact `output/playwright/embedding-config-qa/desktop-panel-success.png` (not committed).
+- Mobile successful-probe state: local QA artifact `output/playwright/embedding-config-qa/mobile-panel-success.png` (not committed).
+- Mobile dirty-contract state: local QA artifact `output/playwright/embedding-config-qa/mobile-panel-dirty.png` (not committed).
+- Implementation URL: `http://localhost:5173/admin/ai-models`, under the `向量模型` tab.
+
+## Comparison Evidence
+
+- Combined reference and implementation: local QA artifact `output/playwright/embedding-config-qa/reference-vs-implementation.png` (not committed).
+- The supplied reference and the current active-contract panel were normalized into one comparison image before judgment.
+- The revised common path removes the blocking error banner and manual Revision/dimension fields. It keeps the existing title, model selector, status, probe, activation, and history hierarchy while moving specialist fields behind `高级设置`.
+
+## Required Fidelity Surfaces
+
+- Typography, neutral surfaces, cyan primary action, green active/success treatment, border weight, and Lucide icons continue to use the existing admin design system.
+- The common path is one responsive row on desktop and a stable vertical flow on mobile. Long provider/model labels remain contained; the history table scrolls inside its own boundary.
+- Revision is treated as an internal immutable identifier: the form does not ask administrators to invent it, and generated values appear as `系统生成` in history with the full value available as the cell title.
+- A successful probe exposes the observed dimension and latency, enables activation, and any subsequent form change clears the probe, restores `待检测`, and disables activation.
+- The dimensions control is conditional: it appears only when the administrator explicitly asks the upstream provider for a chosen output dimension.
+
+## Findings
+
+No actionable P0, P1, or P2 visual or interaction findings remain.
+
+## Intentional Deviations
+
+- The source exposed every protocol/runtime field at once. The implementation separates the model-first workflow from advanced vector-contract and runtime settings to avoid requiring provider-internal knowledge for normal setup.
+- The raw generated revision is not repeated in the success banner because it is not an administrator input; immutable history retains it.
+- The implementation includes the existing active-version history below the configuration surface, which was outside the supplied crop but is required for operational traceability.
+
+## Verification
+
+- Desktop Chromium at 1280 x 720: active restore, model switch, successful probe, advanced toggle, dirty-state invalidation, disabled/enabled activation, and history display passed.
+- Mobile Chromium at 390 x 844: the panel, long model name, buttons, controls, success state, and advanced sections stayed within the viewport; the document measured 390 px client width and 374 px scroll width.
+- Desktop measured 1280 px client width and 1264 px scroll width. Neither viewport had document-level horizontal overflow.
+- Both browser sessions reported zero console errors and zero console warnings.
+- The browser used fictitious provider/model fixtures and mocked admin API responses. Real provider compatibility was validated separately through the backend service without exposing credentials.
+
+## Residual Risk
+
+- Safari and Firefox were not separately exercised.
+- Qdrant was unavailable during this pass, so this QA covers embedding configuration only and does not claim P2-B ingestion or P3 retrieval behavior.
+
+final result: passed
+
+---
+
 # AI Channel Editor Design QA
 
 ## Comparison Target
