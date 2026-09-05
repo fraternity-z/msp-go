@@ -349,7 +349,7 @@ func (r SessionRepository) CompleteFirstChat(ctx context.Context, completion ses
 // GetMessage returns one exact message from a session.
 func (r SessionRepository) GetMessage(ctx context.Context, sessionID string, messageID string) (sessionapp.Message, bool, error) {
 	row := r.DB().QueryRow(ctx, `
-		SELECT id, session_id, role::text, content, agent_type::text, attachments, created_at
+		SELECT id, session_id, role::text, content, agent_type::text, attachments, created_at, knowledge
 		FROM public.session_messages
 		WHERE session_id = $1 AND id = $2`,
 		sessionID,
@@ -371,6 +371,10 @@ func (r SessionRepository) InsertMessage(ctx context.Context, message sessionapp
 	if err != nil {
 		return err
 	}
+	knowledgeRaw, err := knowledgeToDB(message.Knowledge)
+	if err != nil {
+		return err
+	}
 	_, err = r.DB().Exec(ctx, `
 		INSERT INTO public.session_messages (
 			id,
@@ -381,9 +385,10 @@ func (r SessionRepository) InsertMessage(ctx context.Context, message sessionapp
 			attachments,
 			related_concept_ids,
 			related_content_id,
-			created_at
+			created_at,
+			knowledge
 		)
-		VALUES ($1, $2, $3::public.messagerole, $4, $5::public.agenttype, $6::json, '[]'::json, NULL, $7)`,
+		VALUES ($1, $2, $3::public.messagerole, $4, $5::public.agenttype, $6::json, '[]'::json, NULL, $7, $8::jsonb)`,
 		message.ID,
 		message.SessionID,
 		roleToDB(message.Role),
@@ -391,6 +396,7 @@ func (r SessionRepository) InsertMessage(ctx context.Context, message sessionapp
 		agentToDB(message.Agent),
 		string(attachmentsRaw),
 		message.CreatedAt,
+		knowledgeRaw,
 	)
 	return err
 }
@@ -398,6 +404,10 @@ func (r SessionRepository) InsertMessage(ctx context.Context, message sessionapp
 // InsertMeteredAssistantMessage atomically stores a successful reply and its quota ledger row.
 func (r SessionRepository) InsertMeteredAssistantMessage(ctx context.Context, studentID string, message sessionapp.Message, usageDate string) error {
 	attachmentsRaw, err := json.Marshal(message.Attachments)
+	if err != nil {
+		return err
+	}
+	knowledgeRaw, err := knowledgeToDB(message.Knowledge)
 	if err != nil {
 		return err
 	}
@@ -412,9 +422,10 @@ func (r SessionRepository) InsertMeteredAssistantMessage(ctx context.Context, st
 				attachments,
 				related_concept_ids,
 				related_content_id,
-				created_at
+				created_at,
+				knowledge
 			)
-			VALUES ($1, $2, $3::public.messagerole, $4, $5::public.agenttype, $6::json, '[]'::json, NULL, $7)
+			VALUES ($1, $2, $3::public.messagerole, $4, $5::public.agenttype, $6::json, '[]'::json, NULL, $7, $10::jsonb)
 			RETURNING id
 		)
 		INSERT INTO public.student_ai_reply_usage (
@@ -431,6 +442,7 @@ func (r SessionRepository) InsertMeteredAssistantMessage(ctx context.Context, st
 		message.CreatedAt,
 		studentID,
 		usageDate,
+		knowledgeRaw,
 	)
 	return err
 }
@@ -447,7 +459,7 @@ func (r SessionRepository) ListMessages(ctx context.Context, sessionID string, l
 		return nil, 0, err
 	}
 	rows, err := r.DB().Query(ctx, `
-		SELECT id, session_id, role::text, content, agent_type::text, attachments, created_at
+		SELECT id, session_id, role::text, content, agent_type::text, attachments, created_at, knowledge
 		FROM public.session_messages
 		WHERE session_id = $1
 		ORDER BY created_at ASC, id ASC
@@ -711,11 +723,23 @@ func scanSessionListItem(rows pgx.Rows) (sessionapp.LearningSession, int, error)
 	return session, count, nil
 }
 
+func knowledgeToDB(knowledge *sessionapp.KnowledgeState) (any, error) {
+	if knowledge == nil {
+		return nil, nil
+	}
+	encoded, err := json.Marshal(knowledge)
+	if err != nil {
+		return nil, fmt.Errorf("encode message knowledge: %w", err)
+	}
+	return string(encoded), nil
+}
+
 func scanMessage(rows rowScanner) (sessionapp.Message, error) {
 	var message sessionapp.Message
 	var agent pgtype.Text
 	var attachmentsRaw []byte
-	if err := rows.Scan(&message.ID, &message.SessionID, &message.Role, &message.Content, &agent, &attachmentsRaw, &message.CreatedAt); err != nil {
+	var knowledgeRaw []byte
+	if err := rows.Scan(&message.ID, &message.SessionID, &message.Role, &message.Content, &agent, &attachmentsRaw, &message.CreatedAt, &knowledgeRaw); err != nil {
 		return sessionapp.Message{}, err
 	}
 	message.Role = roleFromDB(message.Role)
@@ -728,6 +752,11 @@ func scanMessage(rows rowScanner) (sessionapp.Message, error) {
 		return sessionapp.Message{}, fmt.Errorf("decode message attachments: %w", err)
 	}
 	message.Attachments = attachments
+	if len(knowledgeRaw) > 0 {
+		if err := json.Unmarshal(knowledgeRaw, &message.Knowledge); err != nil {
+			return sessionapp.Message{}, fmt.Errorf("decode message knowledge: %w", err)
+		}
+	}
 	return message, nil
 }
 

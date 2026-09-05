@@ -47,6 +47,7 @@ import (
 	einoagent "mathstudy/backend/internal/adapter/llm/einoagent"
 	moderationadapter "mathstudy/backend/internal/adapter/llm/moderation"
 	openaicompatadapter "mathstudy/backend/internal/adapter/llm/openaicompat"
+	resourceretrievaladapter "mathstudy/backend/internal/adapter/llm/resourceretrieval"
 	adapterpostgres "mathstudy/backend/internal/adapter/postgres"
 	qdrantadapter "mathstudy/backend/internal/adapter/qdrant"
 	adapterredis "mathstudy/backend/internal/adapter/redis"
@@ -482,6 +483,49 @@ func main() {
 		logger.Error("configure daily question handler", "error", err)
 		os.Exit(1)
 	}
+	resourceRepo, err := adapterpostgres.NewResourceRepository(dbPool)
+	if err != nil {
+		logger.Error("configure resource repository", "error", err)
+		os.Exit(1)
+	}
+	resourceService, err := resourceapp.NewService(resourceRepo)
+	if err != nil {
+		logger.Error("configure resource service", "error", err)
+		os.Exit(1)
+	}
+	var resourceVectorRetriever resourceapp.SearchCandidateRetriever
+	if qdrantClient != nil {
+		queryEmbedder, embedErr := resourceretrievaladapter.NewQueryEmbedder(adminAIConfigService)
+		if embedErr != nil {
+			logger.Error("configure resource query embedder", "error", embedErr)
+			os.Exit(1)
+		}
+		resourceVectorRetriever, err = resourceapp.NewVectorRetriever(qdrantClient, queryEmbedder, resourceRepo)
+		if err != nil {
+			logger.Error("configure resource vector retriever", "error", err)
+			os.Exit(1)
+		}
+	}
+	resourceReranker, err := resourceretrievaladapter.NewReranker(adminAIConfigService)
+	if err != nil {
+		logger.Error("configure resource reranker", "error", err)
+		os.Exit(1)
+	}
+	resourceSearchService, err := resourceapp.NewSearchService(resourceRepo, resourceVectorRetriever,
+		resourceapp.WithSearchReranker(resourceReranker),
+		resourceapp.WithSearchObserver(resourceSearchObserver(store, logger)),
+	)
+	if err != nil {
+		logger.Error("configure resource search service", "error", err)
+		os.Exit(1)
+	}
+	resourceHandler, err := resourcehttp.NewHandler(
+		logger, resourceService, authService, resourcehttp.WithSearchService(resourceSearchService),
+	)
+	if err != nil {
+		logger.Error("configure resource handler", "error", err)
+		os.Exit(1)
+	}
 	sessionRepo, err := adapterpostgres.NewSessionRepository(dbPool)
 	if err != nil {
 		logger.Error("configure session repository", "error", err)
@@ -493,6 +537,7 @@ func main() {
 		sessionapp.WithChatAgent(tutorAgent),
 		sessionapp.WithAIRequestGuard(aiRiskService),
 		sessionapp.WithLogger(logger),
+		sessionapp.WithKnowledgeRetriever(resourceSearchService),
 	)
 	if err != nil {
 		logger.Error("configure session service", "error", err)
@@ -501,21 +546,6 @@ func main() {
 	sessionHandler, err := sessionhttp.NewHandler(logger, sessionService, authService)
 	if err != nil {
 		logger.Error("configure session handler", "error", err)
-		os.Exit(1)
-	}
-	resourceRepo, err := adapterpostgres.NewResourceRepository(dbPool)
-	if err != nil {
-		logger.Error("configure resource repository", "error", err)
-		os.Exit(1)
-	}
-	resourceService, err := resourceapp.NewService(resourceRepo)
-	if err != nil {
-		logger.Error("configure resource service", "error", err)
-		os.Exit(1)
-	}
-	resourceHandler, err := resourcehttp.NewHandler(logger, resourceService, authService)
-	if err != nil {
-		logger.Error("configure resource handler", "error", err)
 		os.Exit(1)
 	}
 	questionRepo, err := adapterpostgres.NewQuestionRepository(dbPool)

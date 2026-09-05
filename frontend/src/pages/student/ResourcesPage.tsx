@@ -29,6 +29,7 @@ import { getInitialResourceSearch, openResourceUrl } from '@/libs/utils/resource
 import type { ResourceType, Resource } from '@/modules/resource/types/resource';
 import { toAppErrorFeedback } from '@/libs/http/appError';
 import { useToast } from '@/components/ui/Toast';
+import { KnowledgeSearch } from '@/modules/resource/components/KnowledgeSearch';
 
 const typeOptions = [
   { value: '', label: '全部类型' },
@@ -88,6 +89,7 @@ export const ResourcesPage: React.FC = () => {
 
   // 筛选变化时重新加载（含搜索防抖）
   useEffect(() => {
+    if (activeTab === 'knowledge') return;
     const timer = setTimeout(() => {
       const filter: {
         type?: ResourceType;
@@ -219,23 +221,25 @@ export const ResourcesPage: React.FC = () => {
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-surface-400" />
                 <Input
                   placeholder="搜索资源..."
+                  aria-label={activeTab === 'knowledge' ? '知识搜索' : '搜索资源'}
+                  maxLength={activeTab === 'knowledge' ? 2000 : undefined}
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-10"
                 />
               </div>
-              <div className="flex gap-2">
+              <div className="flex min-w-0 flex-col gap-2 min-[400px]:flex-row">
                 <Select
                   options={typeOptions}
                   value={selectedType}
                   onChange={setSelectedType}
-                  className="w-28"
+                  className="min-w-0 flex-1 md:w-28 md:flex-none"
                 />
                 <Select
                   options={chapterOptions}
                   value={selectedChapter}
                   onChange={setSelectedChapter}
-                  className="w-40"
+                  className="min-w-0 flex-1 md:w-40 md:flex-none"
                 />
               </div>
             </div>
@@ -246,14 +250,17 @@ export const ResourcesPage: React.FC = () => {
         <Card>
           <CardHeader>
             <Tabs defaultValue="all" onValueChange={setActiveTab}>
-              <TabsList>
-                <TabsTrigger value="all">全部资源</TabsTrigger>
-                <TabsTrigger value="favorites">我的收藏</TabsTrigger>
+              <TabsList className="max-w-full">
+                <TabsTrigger value="all" className="px-2 text-xs sm:px-3 sm:text-sm">全部资源</TabsTrigger>
+                <TabsTrigger value="favorites" className="px-2 text-xs sm:px-3 sm:text-sm">我的收藏</TabsTrigger>
+                <TabsTrigger value="knowledge" className="px-2 text-xs sm:px-3 sm:text-sm">知识搜索</TabsTrigger>
               </TabsList>
             </Tabs>
           </CardHeader>
           <CardContent>
-            {loadError ? (
+            {activeTab === 'knowledge' ? (
+              <KnowledgeSearch key={`${searchTerm}:${selectedType}:${selectedChapter}`} query={searchTerm} type={selectedType} chapter={selectedChapter} />
+            ) : loadError ? (
               <RequestErrorNotice
                 error={loadError}
                 onRetry={retryResources}

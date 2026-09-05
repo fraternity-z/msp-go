@@ -18,6 +18,7 @@ import {
   type SessionRequestError,
 } from '@/modules/session/errors';
 import { formatChatMessageForDisplay } from '@/modules/session/documentMessage';
+import { normalizeSessionKnowledge } from '@/modules/session/knowledge';
 
 export type { ChatMode, ChatSessionListItem } from '@/modules/session/types';
 
@@ -115,6 +116,7 @@ const mapHistoryResponse = (
       : msg.content,
     timestamp: msg.timestamp,
     attachments: msg.attachments,
+    knowledge: normalizeSessionKnowledge(msg.knowledge),
     metadata: {
       agent: msg.agent,
     },
@@ -501,6 +503,11 @@ const sessionSlice = createSlice({
           ...action.payload,
         };
       }
+    },
+
+    setMessageKnowledge(state, action: PayloadAction<{ id: string; knowledge: SessionMessage['knowledge'] }>) {
+      const message = state.messages.find((item) => item.id === action.payload.id && item.role === 'assistant');
+      if (message) message.knowledge = action.payload.knowledge;
     },
 
     // 追加内容到流式消息（用于流式响应）
@@ -1008,6 +1015,7 @@ export const {
   materializeDraftSession,
   completeDraftFirstTurn,
   updateLastMessage,
+  setMessageKnowledge,
   appendToLastMessage,
   setMode,
   clearCurrentSession,

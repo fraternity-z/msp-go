@@ -257,7 +257,7 @@ export const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({
                       </Badge>
                     ) : (
                       <Badge variant="default" className="text-xs">
-                        使用默认
+                        {agentType.type === 'resource_reranker' ? '未启用' : '使用默认'}
                       </Badge>
                     )}
                   </div>
@@ -383,7 +383,7 @@ export const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({
                       disabled={savingAgent === agentType.type}
                     >
                       <RotateCcw className="w-4 h-4 mr-2" />
-                      重置为默认
+                      {agentType.type === 'resource_reranker' ? '关闭重排' : '重置为默认'}
                     </Button>
                     <Button
                       onClick={() => handleSave(agentType.type)}

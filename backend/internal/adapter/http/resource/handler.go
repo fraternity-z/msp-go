@@ -36,13 +36,14 @@ type Authenticator interface {
 
 // Handler serves /resources endpoints.
 type Handler struct {
-	service Service
-	auth    Authenticator
-	logger  *slog.Logger
+	service       Service
+	searchService SearchService
+	auth          Authenticator
+	logger        *slog.Logger
 }
 
 // NewHandler creates a resource HTTP handler.
-func NewHandler(logger *slog.Logger, service Service, auth Authenticator) (*Handler, error) {
+func NewHandler(logger *slog.Logger, service Service, auth Authenticator, options ...Option) (*Handler, error) {
 	if service == nil {
 		return nil, errors.New("resource service is nil")
 	}
@@ -52,7 +53,13 @@ func NewHandler(logger *slog.Logger, service Service, auth Authenticator) (*Hand
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Handler{service: service, auth: auth, logger: logger}, nil
+	handler := &Handler{service: service, auth: auth, logger: logger}
+	for _, option := range options {
+		if option != nil {
+			option(handler)
+		}
+	}
+	return handler, nil
 }
 
 // Register attaches resource routes under prefix, for example /api/v1/resources.
@@ -62,6 +69,8 @@ func (h *Handler) Register(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("GET "+prefix+"/favorites", h.favorites)
 	mux.HandleFunc("GET "+prefix+"/{resource_id}", h.detail)
 	mux.HandleFunc("POST "+prefix, h.create)
+	mux.HandleFunc("POST "+prefix+"/search", h.search)
+	mux.HandleFunc("GET "+prefix+"/citations/{chunk_id}", h.citation)
 	mux.HandleFunc("PUT "+prefix+"/{resource_id}", h.update)
 	mux.HandleFunc("DELETE "+prefix+"/{resource_id}", h.delete)
 	mux.HandleFunc("POST "+prefix+"/{resource_id}/favorite", h.toggleFavorite)

@@ -21,7 +21,7 @@ export const ChatMessages = React.memo<ChatMessagesProps>(
     return (
       <div
         ref={messagesContainerRef}
-        className="flex-1 overflow-y-auto scroll-optimized px-6 py-4 space-y-4"
+        className="min-w-0 flex-1 overflow-y-auto scroll-optimized px-3 py-4 space-y-4 sm:px-6"
       >
         {isLoading && messages.length === 0 ? (
           <div className="flex items-center justify-center h-full">
@@ -52,6 +52,7 @@ export const ChatMessages = React.memo<ChatMessagesProps>(
               isLoading={message.id === streamingMessageId && message.content === ''}
               isStreamingContent={message.id === streamingMessageId && message.content !== ''}
               attachments={message.attachments}
+              knowledge={message.knowledge}
             />
           ))
         )}

@@ -1,6 +1,6 @@
 # 系统架构
 
-本文描述 MathStudyPlatform 当前有效的技术架构。未完成工作见 [项目待办](../TODO.md)，历史时间点资料见 [归档索引](../archive/README.md)。资源中心接入 Qdrant 的完整目标架构见 [资源中心 PostgreSQL + Qdrant 双数据库方案](resource-center-qdrant-architecture.md)。当前 P1 已加入可选 Qdrant adapter 和健康检查；P2-A/M2-A 已完成管理员专用 embedding 测试、唯一 active 不可变版本激活、历史查询和失败关闭运行时解析，自动 revision 绑定渠道/模型来源版本与完整契约，同一 revision 不允许改写来源或参数。当前 active 契约为 `voyage-4-large` 的系统版本 `auto-v2-e5ec9a9f2abaa010`（1024 维、Cosine、`send_dimensions=false`、32/30/3）。通用探针省略可选 `encoding_format` 后按完整契约真实复测成功。P2 已进入强制暂停，D-002 的费用与数据合规仍待确认；Qdrant 当前不可用，P2-B/P3 入库与检索尚未启动，Qdrant 仍不属于默认业务运行链路。
+本文描述 MathStudyPlatform 当前有效的技术架构。未完成工作见 [项目待办](../TODO.md)，历史时间点资料见 [归档索引](../archive/README.md)。资源中心完整目标见 [PostgreSQL + Qdrant 双数据库方案](resource-center-qdrant-architecture.md)。P3 已接入管理员 query embedding、可选 Qdrant、FTS/RRF、可选重排、两次 PostgreSQL 鉴权、邻接与预算、引用打开、Session 和前端。P2-B 入库链路尚未交付，因此新资源不会自动生成可检索 chunk；无当前索引时返回空知识结果。代码集成与隔离验证不等于 M3 业务验收或生产质量达标。
 
 ## 系统边界
 
@@ -68,7 +68,7 @@ backend/
 └── migrations/                 # Go forward migrations
 ```
 
-依赖方向以应用层接口为中心：HTTP 适配器负责协议转换，PostgreSQL、Redis、存储、Qdrant、LLM 和外部服务通过适配器接入，应用服务负责业务规则与事务编排。Qdrant client import 只允许出现在 `internal/adapter/qdrant` 和 `cmd` 装配边界；P1 未把 Qdrant 作为业务必需依赖。
+依赖方向以应用层接口为中心：HTTP 适配器负责协议转换，PostgreSQL、Redis、存储、Qdrant、LLM 和外部服务通过适配器接入，应用服务负责业务规则与事务编排。Qdrant client import 只允许出现在 `internal/adapter/qdrant` 和 `cmd` 装配边界。资源 `SearchService` 依赖 `SearchRepository`、可选 `SearchCandidateRetriever`/`SearchReranker` 与观测接口；`VectorRetriever` 只依赖 application vector port、query embedder 和 manifest resolver。API 在 `QDRANT_ENABLED` 时装配向量适配器，并把同一个 `SearchService` 作为 Session 的窄 `KnowledgeRetriever`，Session/Eino/HTTP 均不导入 Qdrant client。
 
 | 层 | 负责 | 不负责 |
 |----|------|--------|
@@ -100,6 +100,9 @@ backend/
 ## API 与兼容契约
 
 - 业务 API 默认使用 `/api/v1`，健康检查和指标使用明确的独立入口。
+- `POST /resources/search` 使用当前认证用户与服务端默认租户，调用方不能指定模型、向量、用户或租户。PostgreSQL 先得到最多 1000 个粗授权资源；超过时向量降级，不截断为完整结果。FTS 与向量并行召回后 RRF 融合，先授权再向可选重排模型提供正文；重排与邻接扩展后再次授权，以当前账户、ACL、发布/删除、版本、generation 和 manifest 加载最终正文。deny 优先于 owner/allow。结果含 citation、模式、降级原因与独立邻接块；无索引为空结果，退役模型不影响有效文本 FTS。
+- `GET /resources/citations/{chunk_id}` 必须同时绑定知识库、版本与 generation，再次执行当前 PostgreSQL 授权；引用失效或撤权统一返回 `404 CITATION_UNAVAILABLE`，响应禁止缓存，旧引用不构成访问凭证。前端通过该接口展示页面与章节定位，不绕过检查跳往旧资源详情或原文件 URL。
+- Session 首次、续聊、流式及历史重开统一传递 `knowledge` 模式、降级信息和实际送入 prompt 的引用。知识正文作为独立的不可信资料消息，固定 Tutor 规则禁止执行资料内指令。16 KiB 动态输入预算共同约束当前问题、模式、附件占用、历史与完整知识序列化；知识最多 8 KiB且按整块保留，固定系统规则另占模型输入容量。数据库只保存引用元数据；带旧知识引用的助手回复不再次进入模型历史，以免撤权后重放资料。
 - Auth/Admin、Session/Exercise、Progress/Portrait、Classroom/Teacher、Resource/Upload、AI Config 和 Xidian/Security 的路由由对应 HTTP adapter 承接；实际路由注册是接口清单的代码事实来源。
 - 全站论坛使用 `/api/v1/forum`，由独立 application service、HTTP adapter 和 PostgreSQL repository 承接。学生、教师和管理员可以读写论坛；教师只能精选自己当前所教学生发布的帖子，管理员不能设置或取消精选，但可以将违规帖子设为不可见，举报审核只允许管理员操作。不可见使用现有 `hidden` 状态保留帖子、回复和审计数据，普通用户列表不展示；管理员帖子列表默认使用“全部帖子”，并提供“可见帖子”和各状态筛选，其中“全部帖子”包含 `open`、`resolved`、`hidden` 和旧 `deleted` 状态，且管理员可读取复核内容所引用的受保护附件。管理员可调用 `POST /posts/{id}/restore` 恢复帖子，`hidden` 状态会恢复可见，已公开帖子按幂等成功处理，旧 `deleted` 状态不可恢复；`accepted_reply_id` 为空时恢复为 `open`、非空时恢复为 `resolved`。恢复只重新开放帖子及其保留回复，不重新打开已处理举报、不撤销通知已读状态，也不恢复隐藏时清除的精选状态。管理员另可调用 `DELETE /posts/{id}/permanent` 直接永久删除任意状态帖子，不要求先设为不可见，数据库事务会清理多态举报并依赖外键级联清理回复、点赞、收藏和论坛通知。帖子附件 URL 记录在 JSON 中，永久删除数据库记录不会自动删除对象存储文件，文件回收需由独立存储清理流程负责。查询层结合 `featured_by`、发帖学生当前 `class_enrollments` 和查看者身份计算有效精选：仅发帖学生当前班级成员及该班教师看到精选标记，其他用户和管理员按普通帖子查看；所有列表排序都在服务端分页前先按有效精选置顶，精选操作不改写全站通用的帖子更新时间。发布帖子时板块和类型可省略，服务端将其归入稳定默认板块 `learning-methods`（学习方法）并使用 `discussion` 类型；历史帖子仍保留原有板块和类型。学生和教师从消息中心普通进入论坛时先停留在帖子选择界面，只有携带论坛帖子 ID 的互动通知深链会直接打开详情；回复、点赞、`@` 提及、最佳答案和精选通知统一合并进消息中心摘要，打开对应帖子后按通知所有权标记已读，点赞撤销、最佳答案变更或精选撤销/替换时同步撤回已经失效的互动通知。帖子与回复的并发写入统一按帖子、回复顺序加行锁，举报目标校验和举报写入位于同一事务，避免不可见后继续产生互动或待审核记录。管理后台提供举报状态筛选、目标内容查看、举报处理、不可见、恢复和永久删除入口。
 - 前端依赖的 JSON 字段名保持稳定；错误响应保留稳定的 `code`、`message` 和 HTTP 状态码。HTTP 与 SSE 的失败统一在前端协议边界归一化为 `AppError`，携带错误类别、业务码、状态码、用户可读消息、来源、是否可重试以及可选的请求编号和等待时间；HTTP 响应从 `X-Request-ID` 和 `Retry-After` 提取关联信息，SSE 建连失败与流内 `error` 事件也进入相同模型。页面使用统一反馈组件按网络、超时、认证、权限、校验、冲突、限流、服务不可用等语义展示消息和恢复操作，并在存在请求编号时显示该编号供排障；作为请求控制信号的取消统一归类为 `cancelled` 并保持静默。
@@ -134,7 +137,7 @@ backend/
 
 ## AI 与降级边界
 
-七类 Agent 配置分别为 `tutor`、`portrait`、`diagnostician`、`math_solver`、`question_parser`、`question_generator` 和 `ocr`。运行时优先读取数据库中的 Agent 配置；部分既有能力在无模型时使用本地确定性实现或模板降级。
+七类生成 Agent 为 `tutor`、`portrait`、`diagnostician`、`math_solver`、`question_parser`、`question_generator` 和 `ocr`，另有可选 `resource_reranker` 调用 `/rerank`。运行时读取管理员数据库配置；重排未启用正常跳过，超时或非法输出回退 RRF。query embedding 只使用管理员 active 不可变版本，Voyage 请求标记 `input_type=query`；模型契约与索引不符时保留 FTS 降级，不自动改模型。
 
 关键契约：
 
@@ -153,4 +156,4 @@ backend/
 
 ## 数据与迁移
 
-PostgreSQL 是业务、版本和权限数据源，Redis 用于缓存和运行时辅助状态，Qdrant 仅保存可重建的向量和最小 payload。数据库结构由 `backend/migrations/` 中的 Go forward migration 管理；首次生产基线按基础结构、AI 风控、站内通信和外部通知四个领域分组，`0017_resource_vector_foundation` 追加资源中心契约，`0018_admin_embedding_configuration` 追加管理员模型关联、验证/激活参数和单 active 约束，后续变化从 `0019` 起只追加新版本。历史 Alembic 链和开发期增量链已退出当前工作区。迁移规则见 [Go 数据库迁移策略](../../backend/migrations/README.md)。
+PostgreSQL 是业务、版本和权限数据源，Redis 用于缓存和运行时辅助状态，Qdrant 仅保存可重建的向量和最小 payload。数据库结构由 `backend/migrations/` 中的 Go forward migration 管理；`0017` 追加资源中心契约，`0018` 追加管理员不可变模型配置，`0019` 增加 `pg_trgm`/检索索引与 nullable 会话引用元数据，后续从 `0020` 起追加。历史 Alembic 链和开发期增量链已退出当前工作区。迁移规则见 [Go 数据库迁移策略](../../backend/migrations/README.md)。

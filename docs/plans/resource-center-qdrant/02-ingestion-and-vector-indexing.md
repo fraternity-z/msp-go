@@ -6,7 +6,7 @@
 > 后续阶段：[P3 检索与 RAG 集成](03-retrieval-and-rag-integration.md)
 > 当前子阶段：P2 强制暂停（P2-A/M2-A 已完成）
 > 模型配置：Embedding 模型由管理员在管理端测试并激活；当前 active 为 `voyage-4-large` 的系统版本 `auto-v2-e5ec9a9f2abaa010`（1024 维、Cosine、`send_dimensions=false`、32/30/3），运行时只读取唯一 active 的不可变版本，不允许代码、环境变量或普通请求方覆盖。
-> 执行暂停：P2-A 验证完成后已暂停；D-002 的费用与数据合规仍待确认，Qdrant 当前不可用。D-002 决策和项目负责人明确继续前，不得启动 P2-B 或任何后续阶段。
+> 执行边界：P2-A 验证完成；2026-09-05 已按继续指令补齐 [P3 全部检索与 RAG 开发项](03-retrieval-and-rag-integration.md)，真实隔离 PostgreSQL/Qdrant 联调通过，外部模型使用 Mock。P2-B 入库生产链路仍未实现，不以检索样本代替 M2-B 验收；D-002 费用与数据合规仍按总进度登记。
 
 ## 1. 阶段目标
 

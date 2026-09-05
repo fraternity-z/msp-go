@@ -2,7 +2,7 @@
 
 本文是仓库唯一的当前待办清单。技术文档和历史记录只引用这里，不再维护独立路线图。
 
-**更新时间**：2026-09-04
+**更新时间**：2026-09-06
 
 ## 优先级说明
 
@@ -20,7 +20,7 @@
 
 ### 资源中心向量检索
 
-- [ ] 按 P0-P6 分阶段接入 Qdrant：P0/P1 已完成，M1 通过；P2-A/M2-A 已完成，管理员已真实验证并激活 `voyage-4-large`（系统版本 `auto-v2-e5ec9a9f2abaa010`、1024 维、Cosine、`send_dimensions=false`、批量/超时/重试为 32/30/3）。通用探针移除可选 `encoding_format` 后按现行完整契约和模型优先流程复测成功。现进入强制暂停：D-002 的费用与数据合规仍未明确确认，Qdrant 当前不可用，P2-B/P3 未实施；项目负责人明确继续前不得启动后续阶段。D-004、D-005、D-009、D-010 继续按日期复核，详见 [专项进度](plans/resource-center-qdrant/PROGRESS.md)。
+- [ ] 按 P0-P6 分阶段接入 Qdrant：P0/P1/M1、P2-A/M2-A 已完成；2026-09-05 补齐 P3 全部 13 项开发，包含 query embedding/真实 Qdrant 召回、FTS/RRF/重排、两次鉴权、邻接预算、引用打开、Session/前端及指标。真实隔离 PostgreSQL/Qdrant 与浏览器验证已执行，外部模型使用 Mock。P2-B 入库生产链路和代表性语料/质量/容量验收仍未完成，M2-B/M3 未通过；无当前索引时返回空知识结果。决策与验收证据见 [专项进度](plans/resource-center-qdrant/PROGRESS.md)。
 
 ### AI 学习闭环
 

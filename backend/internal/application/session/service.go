@@ -93,6 +93,7 @@ type Message struct {
 	Content     string
 	Agent       *string
 	Attachments []string
+	Knowledge   *KnowledgeState
 	CreatedAt   time.Time
 }
 
@@ -146,12 +147,13 @@ type CreateSessionResponse struct {
 
 // MessageResponse stores public message data.
 type MessageResponse struct {
-	ID          string   `json:"id"`
-	Role        string   `json:"role"`
-	Content     string   `json:"content"`
-	Agent       *string  `json:"agent"`
-	Timestamp   string   `json:"timestamp"`
-	Attachments []string `json:"attachments"`
+	ID          string          `json:"id"`
+	Role        string          `json:"role"`
+	Content     string          `json:"content"`
+	Agent       *string         `json:"agent"`
+	Timestamp   string          `json:"timestamp"`
+	Attachments []string        `json:"attachments"`
+	Knowledge   *KnowledgeState `json:"knowledge,omitempty"`
 }
 
 // HistoryResponse is the Python-compatible GET /session/{id}/history response.
@@ -215,6 +217,7 @@ type ChatResult struct {
 	Agent     string
 	Content   string
 	Stopped   bool
+	Knowledge *KnowledgeState `json:"knowledge,omitempty"`
 }
 
 // ChatAgent generates assistant responses for a learning session.
@@ -236,6 +239,7 @@ type ChatAgentInput struct {
 	SystemInstruction string
 	Attachments       []string
 	History           []Message
+	KnowledgeContext  string
 }
 
 // ChatAgentOutput stores the generated assistant message.
@@ -339,15 +343,16 @@ type CancelTaskResponse struct {
 
 // Service implements session use cases.
 type Service struct {
-	repo          Repository
-	agent         ChatAgent
-	guard         AIRequestGuard
-	logger        *slog.Logger
-	now           func() time.Time
-	newID         func() (string, error)
-	activeTasksMu sync.Mutex
-	activeTasks   map[string]*activeChatTask
-	stoppedTasks  map[string]stoppedChatTask
+	repo               Repository
+	agent              ChatAgent
+	knowledgeRetriever KnowledgeRetriever
+	guard              AIRequestGuard
+	logger             *slog.Logger
+	now                func() time.Time
+	newID              func() (string, error)
+	activeTasksMu      sync.Mutex
+	activeTasks        map[string]*activeChatTask
+	stoppedTasks       map[string]stoppedChatTask
 }
 
 type activeChatTask struct {
@@ -873,6 +878,7 @@ func toMessageResponses(messages []Message) []MessageResponse {
 			Agent:       ptrutil.Clone(message.Agent),
 			Timestamp:   timefmt.DateTimeMicros(message.CreatedAt),
 			Attachments: sliceutil.CloneStrings(message.Attachments),
+			Knowledge:   message.Knowledge,
 		})
 	}
 	return responses

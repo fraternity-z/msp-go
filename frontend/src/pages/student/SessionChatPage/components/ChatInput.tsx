@@ -180,7 +180,7 @@ export const ChatInput = React.memo<ChatInputProps>(
 
               {/* Text Input */}
               <textarea
-                className="flex-1 bg-transparent border-none focus:ring-0 focus:outline-none resize-none py-3.5 px-2 max-h-32 min-h-14 text-surface-900 dark:text-surface-100 placeholder-surface-400 dark:placeholder-surface-500"
+                className="min-w-0 flex-1 bg-transparent border-none focus:ring-0 focus:outline-none resize-none py-3.5 px-2 max-h-32 min-h-14 text-surface-900 dark:text-surface-100 placeholder-surface-400 dark:placeholder-surface-500"
                 placeholder="输入你的问题..."
                 rows={1}
                 value={value}

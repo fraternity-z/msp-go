@@ -123,6 +123,7 @@ type Store struct {
 	operationalHTTP      map[httpLabels]*httpSeries
 	operationalStartedAt time.Time
 	runtimeStatsProvider RuntimeStatsProvider
+	resourceSearch       resourceSearchStats
 }
 
 // NewStore creates a metrics store for the API process.
@@ -267,6 +268,7 @@ func (s *Store) Render() string {
 	b.WriteString("# TYPE msp_openai_responses_output_tokens_total counter\n")
 	fmt.Fprintf(&b, "msp_openai_responses_output_tokens_total %d\n", s.responsesOutputTokens.Load())
 	renderHTTPMetrics(&b, httpStats)
+	s.renderResourceSearchMetrics(&b)
 	if runtimeProvider != nil {
 		renderRuntimeMetrics(&b, runtimeProvider())
 	}

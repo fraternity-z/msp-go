@@ -45,6 +45,9 @@ func selectRecentChatHistory(messages []Message, byteBudget int) []Message {
 
 	relevant := make([]Message, 0, len(messages))
 	for _, message := range messages {
+		if normalizedChatRole(message.Role) == "assistant" && message.Knowledge != nil && len(message.Knowledge.Citations) > 0 {
+			continue
+		}
 		if chatHistoryMessageBytes(message) > 0 {
 			relevant = append(relevant, message)
 		}

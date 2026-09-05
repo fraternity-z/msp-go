@@ -8,6 +8,7 @@ import {
   setSendingState,
   setStreamStatus,
   setStreamingMessageId,
+  setMessageKnowledge,
   type StreamStatus,
 } from '@/modules/session/store/sessionSlice';
 import { sessionService } from '@/modules/session/services/sessionService';
@@ -30,6 +31,7 @@ import {
   MAX_CHAT_MESSAGE_KIB,
 } from '@/modules/session/limits';
 import type { DraftSessionIdentity, SessionMode } from '@/modules/session/types';
+import { normalizeSessionKnowledge } from '@/modules/session/knowledge';
 
 const CANCEL_EVENT_FALLBACK_MS = 1500;
 
@@ -457,7 +459,9 @@ export const useChatStream = ({
               });
             }
           },
-          onDone: () => {
+          onDone: (_messageId, _agent, knowledge) => {
+            if (settled || !activeRef.current) return;
+            dispatch(setMessageKnowledge({ id: aiMessageId, knowledge: normalizeSessionKnowledge(knowledge) }));
             markRequestAccepted();
             finishSend('done', 'idle');
           },

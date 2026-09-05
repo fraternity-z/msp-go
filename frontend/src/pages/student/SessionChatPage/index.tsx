@@ -130,7 +130,7 @@ export const SessionChatPage: React.FC = () => {
 
   // Local state
   const [inputValue, setInputValue] = useState('');
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() => window.matchMedia('(min-width: 768px)').matches);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([]);
@@ -668,7 +668,7 @@ export const SessionChatPage: React.FC = () => {
 
   return (
     <MainLayout>
-      <div className="flex h-[calc(100vh-4rem)] bg-surface-50 dark:bg-surface-900">
+      <div className="relative flex h-[calc(100dvh-4rem)] min-w-0 overflow-hidden bg-surface-50 dark:bg-surface-900">
         {/* 侧边栏 */}
         <ChatSidebar
           isOpen={sidebarOpen}
@@ -684,7 +684,10 @@ export const SessionChatPage: React.FC = () => {
           interactionDisabled={interactionBusy}
           onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
           onNewSession={handleNewSession}
-          onSelectSession={handleSelectSession}
+          onSelectSession={(id) => {
+            handleSelectSession(id);
+            if (!window.matchMedia('(min-width: 768px)').matches) setSidebarOpen(false);
+          }}
           onDeleteSession={handleDeleteSession}
           onToggleSelectMode={handleToggleSelectMode}
           onToggleSessionSelection={handleToggleSessionSelection}
@@ -693,7 +696,7 @@ export const SessionChatPage: React.FC = () => {
         />
 
         {/* 主聊天区域 */}
-        <div className="flex-1 flex flex-col">
+        <div className="flex min-w-0 flex-1 flex-col">
           {/* 顶部栏 + 同一行的模式选择器 */}
           <ChatHeader
             currentMode={currentModeConfig}

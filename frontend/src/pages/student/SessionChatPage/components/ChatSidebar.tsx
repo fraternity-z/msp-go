@@ -93,11 +93,14 @@ export const ChatSidebar = React.memo<ChatSidebarProps>(
   }) => {
     return (
       <>
+        {isOpen && <button type="button" aria-label="收起历史会话" onClick={onToggleSidebar} className="absolute inset-0 z-30 bg-surface-900/30 md:hidden" />}
         {/* 侧边栏 */}
         <div
+          aria-hidden={!isOpen}
+          inert={!isOpen}
           className={cn(
-            'w-72 border-r border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800 flex flex-col transition-[margin] duration-300',
-            !isOpen && '-ml-72'
+            'absolute inset-y-0 left-0 z-40 flex w-[calc(100vw-3rem)] max-w-72 shrink-0 flex-col border-r border-surface-200 bg-white transition-[margin] duration-300 dark:border-surface-700 dark:bg-surface-800 md:static md:z-auto md:w-72',
+            !isOpen && 'hidden md:-ml-72 md:flex'
           )}
         >
           {/* 侧边栏头部 */}
@@ -271,8 +274,10 @@ export const ChatSidebar = React.memo<ChatSidebarProps>(
         {/* 侧边栏切换按钮 */}
         <button
           onClick={onToggleSidebar}
-          className="absolute left-0 top-1/2 -translate-y-1/2 z-30 p-1.5 bg-white dark:bg-surface-800 border border-surface-200 dark:border-surface-700 rounded-r-lg shadow-sm hover:bg-surface-50 dark:hover:bg-surface-700 transition-[left,background-color,border-color] duration-300"
-          style={{ left: isOpen ? '18rem' : '0' }}
+          aria-label={isOpen ? '收起侧栏' : '展开侧栏'}
+          title={isOpen ? '收起侧栏' : '展开侧栏'}
+          className={cn('absolute top-1/2 -translate-y-1/2 z-50 p-1.5 bg-white dark:bg-surface-800 border border-surface-200 dark:border-surface-700 rounded-r-lg shadow-sm hover:bg-surface-50 dark:hover:bg-surface-700 transition-[left,background-color,border-color] duration-300', !isOpen && 'hidden md:block')}
+          style={{ left: isOpen ? 'min(18rem, calc(100vw - 3rem))' : '0' }}
         >
           {isOpen ? (
             <PanelLeftClose className="w-4 h-4 text-surface-500" />

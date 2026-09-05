@@ -126,11 +126,11 @@ FROM public.go_schema_migrations
 ORDER BY version;
 ```
 
-当前迁移链由 `0001` 至 `0017` 十七个迁移组成。`0005` 至 `0010` 交付每日题、画像、每日题一致性和错题闭环；`0011` 至 `0014` 交付论坛、学习会话模式、首次聊天幂等和 AI 参数默认值；`0015_auth_version` 为账户增加认证版本，使密码和状态变化立即撤销既有令牌；`0016_local_upload_access` 记录本地对象上传者，并为附件和公开资源的对象级授权查询增加索引；`0017_resource_vector_foundation` 交付资源中心租户/知识库、文档版本/chunk、模型版本、generation、job 和可靠 outbox 基础。
+当前迁移链由 `0001` 至 `0019` 十九个迁移组成。`0017` 提供资源中心版本、generation 和入库任务基础，`0018` 提供管理员 embedding 不可变配置，`0019` 增加 `session_messages.knowledge` nullable JSONB、`pg_trgm` 与检索索引。部署前确认迁移账号可以在 `public` 安装 `pg_trgm`，并为 GIN 索引创建预留维护窗口、磁盘和锁等待时间；API 不会自动执行迁移。
 
-全新空库第一次 migration runner 应记录版本 `1` 至 `17`；version 16 数据库只应用 version 17，紧接着重复执行应为 `applied_count=0`。执行任何待应用迁移前都应停止应用写入、完成可恢复备份，并在维护窗口迁移；`0015` 上线时新 API 必须在迁移成功后一次性切换，不能与仍签发无 `auth_version` 令牌的旧实例混跑。迁移完成后所有旧会话都会失效，用户需要重新登录。
+空库首次记录版本 `1` 至 `19`，version 18 库只应用 version 19，重复执行为 `applied_count=0`。执行前停止应用写入、完成可恢复备份；先迁移再启动新 API。`0019` 不失效登录会话，旧消息保持 SQL NULL，旧 API 可以忽略新列；应用回滚保留新列、扩展、索引和引用记录。只有从 `0015` 之前升级时，旧的无 `auth_version` 令牌才需要统一重新登录，不能与旧签发逻辑混跑。
 
-迁移后应确认版本 17 已记录、`users.auth_version` 非空且至少为 1，并确认 `tenants`、默认 `knowledge_bases`、`resource_documents`、`document_versions`、`document_chunks`、`embedding_model_versions`、`vector_index_generations`、`resource_processing_jobs` 及 outbox lease 字段均已生效。迁移不会根据客户端可写的历史引用自动认领对象；缺少可信所有权记录的既有本地文件按设计返回 `404`，只能重新上传或通过单独评审、可审计的数据导入建立所有权，不得通过直接暴露上传目录规避。曾完整执行未发布草稿 version 10 至 13 的本地数据库已经具备部分最终结构，但账本与当前迁移链可能不兼容；禁止删除版本记录后盲目重放，必须先备份、核对最终结构，再按迁移 README 中经过评审的专用校准流程处理。
+迁移后确认版本 19、`public.pg_trgm`、检索索引和 `session_messages.knowledge` 均生效。知识列只存引用与降级元数据，不存来源正文。检索仅消费当前已发布且有 indexed manifest 的版本；迁移不会回填旧资源 chunk，也不会启动 P2-B 入库 worker。历史本地对象仍必须具备可信所有权，引用打开统一走当前授权接口，不得绕过 Go API。旧草稿迁移账本仍按 [迁移策略](../../backend/migrations/README.md) 单独校准，禁止删除记录盲目重放。
 
 重整前执行过旧开发迁移链的数据库（该旧链也曾占用 `0001` 至 `0015`，但迁移名称和内容不同）不属于可原地升级目标。migration runner 会校验迁移版本、名称和未知记录，并在账本与当前代码不一致时拒绝继续。可丢弃的开发库应删除并重建；任何不可丢弃的库必须先停止发布，完成实际 schema、业务数据和 `go_schema_migrations` 核对，再设计专门的数据保留迁移，禁止删除版本记录后重放基线。
 
@@ -184,6 +184,10 @@ sudo systemctl reload nginx
 - `msp_redis_pool_*`：go-redis 当前连接、连接复用命中/未命中、等待、超时和不可用连接。
 - `msp_openai_responses_input_tokens_total`：Responses 终态中 provider 报告的输入 token 累计值。
 - `msp_openai_responses_output_tokens_total`：Responses 终态中 provider 报告的输出 token 累计值。
+- `msp_resource_search_requests_total{mode,outcome}`：检索请求与错误计数。
+- `msp_resource_search_duration_seconds{stage}`：total/scope/fts/vector/authorize/rerank/neighbors 阶段直方图；vector 包含 query embedding 与 manifest 复核，authorize 包含重排前后两次检查。
+- `msp_resource_search_candidates_total{source}`、`msp_resource_search_filtered_total`、`msp_resource_search_references_total`、`msp_resource_search_empty_total`：候选、被鉴权过滤、引用及成功空结果累计量。
+- `msp_resource_search_degradations_total{reason}`：固定原因的降级计数；重排未配置正常跳过，不算故障。
 
 `route` 只使用注册路由模板；未匹配请求和 CORS preflight 使用固定占位符。不要把原始 URL、用户 ID、request ID 或错误文本加入 label。常用查询示例：
 

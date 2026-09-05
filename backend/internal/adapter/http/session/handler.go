@@ -546,6 +546,7 @@ func (s *chatSSEWriter) writeResult(result sessionapp.ChatResult) error {
 		"type":       "done",
 		"message_id": result.MessageID,
 		"agent":      result.Agent,
+		"knowledge":  result.Knowledge,
 	})
 }
 

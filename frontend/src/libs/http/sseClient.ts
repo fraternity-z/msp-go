@@ -59,7 +59,7 @@ export interface SSEHandlers {
   /** 收到内容块 */
   onChunk?: (content: string, agent: string | null, messageId: string) => void;
   /** 流式响应完成 */
-  onDone?: (messageId: string, agent: string | null) => void;
+  onDone?: (messageId: string, agent: string | null, knowledge?: unknown) => void;
   /** 发生错误 */
   onError?: (error: SSEError) => void;
   /** 任务被取消 */
@@ -320,7 +320,7 @@ function handleMessageEvent(parsed: Record<string, unknown>, handlers: SSEHandle
       stringValue(parsed.message_id)
     );
   } else if (type === 'done') {
-    handlers.onDone?.(stringValue(parsed.message_id), nullableStringValue(parsed.agent));
+    handlers.onDone?.(stringValue(parsed.message_id), nullableStringValue(parsed.agent), parsed.knowledge);
   }
 }
 

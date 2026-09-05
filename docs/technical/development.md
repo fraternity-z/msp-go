@@ -4,7 +4,7 @@
 
 - Go 1.25.13（`go.mod` 声明 `go 1.25.0` 和 `toolchain go1.25.13`）
 - Node.js 20 和 npm
-- PostgreSQL 18 + pgvector
+- PostgreSQL 18 + pgvector + pg_trgm
 - Redis 7
 - Qdrant `v1.14.1`（仅在资源中心 vector profile/live smoke 时需要）
 
@@ -116,7 +116,7 @@ go run ./cmd/migrate
 go run ./cmd/migrate  # 重复执行应无待应用版本
 ```
 
-当前共享迁移链是 `0001` 至 `0018`。`0005` 至 `0010` 交付每日题、画像、每日题一致性和错题闭环，`0011` 至 `0014` 交付论坛、学习会话模式、首次聊天幂等和 AI 参数默认值，`0015_auth_version` 交付账户级令牌失效，`0016_local_upload_access` 交付本地上传对象归属登记及附件 JSONB 索引，`0017_resource_vector_foundation` 交付资源中心租户/知识库、文档版本/chunk、模型版本、generation、job 和可靠 outbox 基础，`0018_admin_embedding_configuration` 补充管理员管理的 embedding 契约与单 active 激活约束。全新数据库首次应记录 version 1 至 18；version 17 数据库只新增 version 18；复跑应无待应用版本。曾执行旧草稿 10 至 13 或旧错题草稿占用 version 11 的本地数据库，必须按 [迁移策略](../../backend/migrations/README.md) 的专用校准流程处理，不能删除账本后重放。runner 会校验数据库中的版本、名称和未知记录；其他旧开发链仍应重建或设计数据保留方案。资源中心后续迁移从 `0019` 起追加，详见 [专项进度](../plans/resource-center-qdrant/PROGRESS.md)。
+当前迁移链是 `0001` 至 `0019`。`0017` 建立资源中心版本/chunk、generation、job 和可靠 outbox 基础，`0018` 提供管理员 embedding 不可变配置，`0019` 增加 `pg_trgm`、检索索引与会话引用元数据。空库首次记录 version 1 至 19，version 18 库只新增 version 19，复跑无待应用版本。迁移账户须可在 `public` 安装 `pg_trgm` 并创建索引；先迁移再启动新 API。曾执行旧草稿 10 至 13 或旧错题草稿占用 version 11 的本地库，按 [迁移策略](../../backend/migrations/README.md) 校准，不能删除账本重放。runner 校验版本、名称和未知记录；后续从 `0020` 起追加。
 
 ## 环境配置
 
@@ -152,7 +152,13 @@ docker compose --profile vector ps qdrant
 
 资源向量模型由管理员在“AI 模型设置 -> 向量模型”中选择已启用渠道模型；仅模型为必填项，测试自动识别实际维度，revision 由系统内部生成，高级参数收纳在可折叠区域。自动 revision 的指纹同时绑定渠道、API base、模型来源版本和完整向量/运行契约；显式 revision 若对应的来源或契约不同则返回冲突，已写入的不可变版本不会被覆盖。测试与激活接口使用受控 HTTPS 出站客户端，校验 `/v1/embeddings` 的响应顺序和实际维度；多 API Key 渠道必须逐个验证全部 Key，并要求返回维度一致，网络错误、HTTP 408/429 和 5xx 按“瞬时错误最大重试次数”有限退避，整次验证共享最多 20 次额外重试和一个总超时。测试与激活都会产生真实上游调用，管理端测试按钮提供费用提示。通用 OpenAI 兼容请求不发送可选 `encoding_format`，避免不兼容上游返回 HTTP 400。凭据继续只加密保存在渠道记录中，不复制到 embedding 版本或响应。激活会在事务中退役旧版本并保证 `resource_embedding` 最多一个 active；无 active、渠道/模型停用或探针后来源发生变化时，运行时失败关闭，必须由管理员重新测试并激活，不能由代码、环境变量或普通请求回退覆盖。
 
-当前 active 版本为 `voyage-4-large` 的系统版本 `auto-v2-e5ec9a9f2abaa010`：1024 维、Cosine、`send_dimensions=false`、批量/超时/重试为 32/30/3。管理员已完成真实探针与激活，省略可选 `encoding_format` 后按完整契约复测成功；仅提交 `model_id` 的新最小流程也成功自动识别为 1024 维、生成内部 revision 并完成激活，最终浏览器探测约 1.00 秒。P2-A/M2-A 已完成并强制暂停；进入 P2-B 前仍必须确认费用与数据合规（D-002），恢复 Qdrant 可用性，并取得项目负责人明确继续指令；不记录 API key 或上游正文。
+管理员于 P2-A 激活 `voyage-4-large` 系统版本 `auto-v2-e5ec9a9f2abaa010`（1024 维、Cosine、`send_dimensions=false`、32/30/3）；这只是当时的验证记录，运行时始终读取当前 active 配置。P3 查询会校验 active 契约与当前 generation 一致，Voyage 使用 `input_type=query`。重排通过管理端智能体 `resource_reranker` 配置，未启用时跳过，失败保留 RRF 顺序；只接受 `/rerank` 的索引/分数响应。P3 本轮外部模型用 Mock 验证，业务数据入库仍由 P2-B 负责。
+
+P3 的 `POST /api/v1/resources/search` 最小 JSON 为 `{"query":"导数"}`；支持 `knowledge_base_id`、`top_k`（1-20，默认 5）、`timeout_ms`（100-10000，默认 3000）与 `filters.type/chapter/topic`。16 KiB 请求体拒绝未知字段和尾随 JSON，身份与 trace 来自中间件。响应含 `items`、可选 `adjacent`、`mode`、`degraded`、`degraded_reasons`、`trace_id`；每项带完整正文和 knowledge-base/resource/version/chunk/generation/page/section/title/hash 引用。FTS 使用加权 `simple` 词项与汉字查询的转义子串匹配；模型退役仍可检索有效已发布文本。向量关闭/失败时 FTS-only，重排失败时保留融合；没有当前索引或授权候选时为空，最终授权失败固定 503，参数错误 400，超时 504。
+
+`GET /api/v1/resources/citations/{chunk_id}?knowledge_base_id=...&document_version_id=...&generation=...` 返回重新授权的 `SearchHit`；失效/撤权统一 404，禁止缓存。资源中心“知识搜索”和聊天引用均使用该入口。Session 请求检索最多 1500 ms，知识最多 8 KiB，并与问题、模式、附件和历史共享原有 16 KiB 动态输入预算；固定系统规则另占模型容量。整块无法容纳则跳过，引用只对应实际输入。首次、续聊、SSE done 与历史返回相同 `knowledge` 元数据；不会在会话表保存资料正文，也不会把旧知识助手回复再次注入历史。无知识或检索失败时继续普通聊天。
+
+`/metrics` 提供 `msp_resource_search_requests_total`、阶段耗时直方图、候选/过滤/引用/空结果计数及降级原因计数。标签为固定 mode/outcome/stage/source/reason，不含查询、用户、资源、trace 或 provider 原始错误。结构化检索日志只记录状态、时长和数量。完整验证证据和边界见 [P3 计划](../plans/resource-center-qdrant/03-retrieval-and-rag-integration.md)。
 
 管理端的智能体参数覆盖不再提供或发送 Top P。新发现模型保存 Temperature `1.0`、Max Tokens `4096`、超时 `1800` 秒和最大重试 `3` 次作为配置基线；其中 Temperature、Max Tokens 和最大重试默认不启用，输入留空时前两项不写入 provider 请求且应用层不重试，只有显式覆盖才生效。超时留空时使用模型的 `1800` 秒总请求时限；这与 Cherry Studio 流式请求收到数据后重新计时的 idle timeout 并不完全等价。Agent 的 `MaxIterations` 固定使用独立默认值 `8`，不得再从重试次数推导。数值和开关语义参考 Cherry Studio 当前的 [Assistant 默认设置](https://github.com/CherryHQ/cherry-studio/blob/12498d68ecb4fb261670843ca7a8e4e64a37526a/src/shared/data/types/assistant.ts)、[请求超时](https://github.com/CherryHQ/cherry-studio/blob/12498d68ecb4fb261670843ca7a8e4e64a37526a/src/main/ai/constants.ts) 和 [模型重试策略](https://github.com/CherryHQ/cherry-studio/blob/12498d68ecb4fb261670843ca7a8e4e64a37526a/docs/references/ai/model-retry.md)。`0014_ai_generation_defaults` 会清空历史 Top P，并只校准仍使用旧默认值的模型；显式自定义的其他数值不变。数据库中的旧 Top P 列和后端兼容 JSON 字段暂时保留，但运行时一律忽略。
 
@@ -214,7 +220,7 @@ WECHAT_QA_MESSAGE_TEMPLATE_ID=
 
 若测试号页面没有消息加解密模式选项，使用 `plain`。不要自行编造 `AES_KEY`，兼容模式和安全模式必须使用微信后台对应的 `EncodingAESKey`。
 
-消息中心结构和北京时间默认值由 `backend/migrations/0003_communication.up.sql` 交付，微信公众号绑定和基础提醒任务由 `0004_delivery_integrations.up.sql` 交付；每日一题、画像、每日题一致性和错题闭环由 `0005` 至 `0010` 交付；论坛、学习会话一致性和 AI 参数默认值由 `0011` 至 `0014` 交付；账户级令牌失效由 `0015_auth_version.up.sql` 交付；本地上传对象归属登记和附件 JSONB 索引由 `0016_local_upload_access.up.sql` 交付；资源中心向量基础由 `0017_resource_vector_foundation.up.sql` 交付；管理员管理的 embedding 契约及单 active 激活约束由 `0018_admin_embedding_configuration.up.sql` 交付。全新数据库第一次运行应记录版本 `1` 至 `18`，version 17 数据库应只新增 version 18，第二次运行都应无待应用版本。
+消息中心与微信公众号基础分别由 `0003`、`0004` 交付；运行前应用当前全部 `0001` 至 `0019` 迁移。`0019` 包含检索索引与会话引用，空库首次记录 19 个版本，version 18 库只新增 version 19，第二次运行无待应用版本。
 
 ```powershell
 Set-Location backend

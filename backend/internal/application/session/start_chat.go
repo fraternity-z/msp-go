@@ -335,6 +335,7 @@ func (s *Service) publishStoredFirstChat(reply Message, stream ChatStreamCallbac
 		MessageID: reply.ID,
 		Agent:     agent,
 		Content:   reply.Content,
+		Knowledge: reply.Knowledge,
 	}
 	if err := publishStoredChatResult(stream, result); err != nil {
 		return ChatResult{}, err
@@ -695,6 +696,17 @@ func (s *Service) buildAssistantMessage(
 	}
 	var output ChatAgentOutput
 	var metered bool
+	knowledge := emptyKnowledgeState()
+	knowledgeContext := ""
+	if generationErr == nil {
+		budget, valid := chatHistoryByteBudget(message, systemInstruction, attachments)
+		if !valid {
+			generationErr = ErrMessageTooLarge
+		} else {
+			knowledgeContext, knowledge, generationErr = s.prepareChatKnowledge(ctx, userID, message, min(budget, 8<<10))
+			history = selectRecentChatHistory(history, budget-len(knowledgeContext))
+		}
+	}
 	if generationErr == nil {
 		output, metered, generationErr = s.generateAssistant(ctx, ChatAgentInput{
 			SessionID:         session.ID,
@@ -703,6 +715,7 @@ func (s *Service) buildAssistantMessage(
 			SystemInstruction: systemInstruction,
 			Attachments:       attachments,
 			History:           history,
+			KnowledgeContext:  knowledgeContext,
 		}, func(chunk ChatAgentChunk) error {
 			if stream.OnChunk == nil {
 				return nil
@@ -733,6 +746,7 @@ func (s *Service) buildAssistantMessage(
 		Content:   output.Content,
 		Agent:     &agent,
 		CreatedAt: assistantCreatedAt,
+		Knowledge: knowledge,
 	}
 	return assistantMessage, agent, metered, generationErr
 }
@@ -844,6 +858,7 @@ func chatResult(taskID string, message Message, agent string) ChatResult {
 		MessageID: message.ID,
 		Agent:     agent,
 		Content:   message.Content,
+		Knowledge: message.Knowledge,
 	}
 }
 

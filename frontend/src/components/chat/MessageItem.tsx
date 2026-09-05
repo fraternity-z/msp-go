@@ -16,6 +16,8 @@ import { cn } from '../../libs/utils/cn';
 import { normalizeSafeImageAttachmentUrl } from '../../libs/utils/safeUrl';
 import { MarkdownContent } from './MarkdownContent';
 import { StreamingMarkdownContent } from './StreamingMarkdownContent';
+import { KnowledgeSources } from './KnowledgeSources';
+import type { SessionKnowledge } from '@/modules/session/knowledge';
 
 export interface MessageItemProps {
   id: string;
@@ -28,6 +30,7 @@ export interface MessageItemProps {
   isStreamingContent?: boolean;
   /** 图片附件 URL 列表 */
   attachments?: string[];
+  knowledge?: SessionKnowledge | null;
 }
 
 /**
@@ -36,7 +39,7 @@ export interface MessageItemProps {
  * 自定义比较函数确保只有当消息内容实际变化时才重新渲染
  */
 export const MessageItem = React.memo<MessageItemProps>(
-  ({ role, content, modeName, isLoading, isStreamingContent, attachments }) => {
+  ({ role, content, modeName, isLoading, isStreamingContent, attachments, knowledge }) => {
     // 加载状态下显示的动画内容
     const loadingContent = (
       <div className="flex items-center space-x-2 py-1">
@@ -90,7 +93,7 @@ export const MessageItem = React.memo<MessageItemProps>(
         )}
       >
         <div className={cn(
-          "flex max-w-[90%] sm:max-w-[80%]",
+            "flex min-w-0 max-w-[90%] sm:max-w-[80%]",
           role === 'student' ? "flex-row-reverse" : "flex-row"
         )}>
           {/* Avatar */}
@@ -111,7 +114,7 @@ export const MessageItem = React.memo<MessageItemProps>(
 
           {/* Message Bubble */}
           <div className={cn(
-            "rounded-2xl text-sm sm:text-base",
+            "min-w-0 wrap-anywhere rounded-2xl text-sm sm:text-base",
             role === 'student'
               ? "bg-linear-to-br from-primary-500 to-primary-600 text-white px-5 py-3.5 rounded-tr-md shadow-lg shadow-primary-500/20"
               : "bg-white dark:bg-surface-800 text-surface-800 dark:text-surface-200 border border-surface-200 dark:border-surface-700 px-5 py-4 rounded-tl-md shadow-sm"
@@ -128,6 +131,8 @@ export const MessageItem = React.memo<MessageItemProps>(
                 {content}
               </div>
             )}
+
+            {role === 'assistant' && !showLoading && !isStreamingContent && <KnowledgeSources knowledge={knowledge} />}
 
             {/* Assistant Message Footer - 加载状态下不显示 */}
             {role === 'assistant' && !showLoading && (
@@ -159,6 +164,7 @@ export const MessageItem = React.memo<MessageItemProps>(
     if (prevProps.modeName !== nextProps.modeName) return false;
     if (prevProps.isLoading !== nextProps.isLoading) return false;
     if (prevProps.isStreamingContent !== nextProps.isStreamingContent) return false;
+    if (prevProps.knowledge !== nextProps.knowledge) return false;
     // attachments: 引用比较 + 逐项比较，避免 JSON.stringify 开销
     const prevAtt = prevProps.attachments;
     const nextAtt = nextProps.attachments;

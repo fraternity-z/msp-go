@@ -55,9 +55,10 @@ var agentTypeNames = map[string]string{
 	"question_parser":    "题目解析智能体",
 	"question_generator": "题目生成智能体",
 	"content_moderator":  "内容审核智能体",
+	"resource_reranker":  "资源重排",
 }
 
-var orderedAgentTypes = []string{"math_solver", "ocr", "tutor", "diagnostician", "portrait", "question_parser", "question_generator", "content_moderator"}
+var orderedAgentTypes = []string{"math_solver", "ocr", "tutor", "diagnostician", "portrait", "question_parser", "question_generator", "content_moderator", "resource_reranker"}
 
 // Repository is the persistence surface required by admin AI configuration.
 type Repository interface {

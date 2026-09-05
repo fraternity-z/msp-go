@@ -72,6 +72,7 @@ export interface SessionMessage {
   timestamp: string;
   metadata?: Record<string, unknown>;
   attachments?: string[];
+  knowledge?: import('@/modules/session/knowledge').SessionKnowledge | null;
 }
 
 // 错题记录（新版本 - 与后端 API 匹配）

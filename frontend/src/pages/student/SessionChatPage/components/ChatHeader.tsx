@@ -15,7 +15,7 @@ export const ChatHeader = React.memo<ChatHeaderProps>(
     return (
       <div className="flex items-center justify-between px-6 py-4 border-b border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={onToggleSidebar}>
+          <Button variant="ghost" size="icon" onClick={onToggleSidebar} aria-label={sidebarOpen ? '关闭历史会话' : '展开历史会话'} title={sidebarOpen ? '关闭历史会话' : '展开历史会话'}>
             {sidebarOpen ? <PanelLeftClose className="w-5 h-5" /> : <PanelLeftOpen className="w-5 h-5" />}
           </Button>
           <div className="flex items-center gap-4">

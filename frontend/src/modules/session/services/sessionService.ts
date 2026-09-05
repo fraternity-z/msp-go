@@ -26,6 +26,7 @@ export interface MessageResponse {
   agent: string | null;
   timestamp: string;
   attachments: string[];
+  knowledge?: import('@/modules/session/knowledge').SessionKnowledge | null;
 }
 
 /** 创建会话响应 */
