@@ -9,16 +9,19 @@ RUN go mod download
 
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/msp-api ./cmd/api \
-    && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/msp-migrate ./cmd/migrate
+    && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/msp-migrate ./cmd/migrate \
+    && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/msp-vector-worker ./cmd/vector-worker
 
 FROM alpine:3.22
 
 WORKDIR /app
 
-RUN adduser -D -u 1000 appuser && mkdir -p /app/uploads && chown -R appuser:appuser /app
+RUN apk add --no-cache ca-certificates poppler-utils \
+    && adduser -D -u 1000 appuser && mkdir -p /app/uploads && chown -R appuser:appuser /app
 
 COPY --from=builder /out/msp-api /usr/local/bin/msp-api
 COPY --from=builder /out/msp-migrate /usr/local/bin/msp-migrate
+COPY --from=builder /out/msp-vector-worker /usr/local/bin/msp-vector-worker
 
 USER appuser
 

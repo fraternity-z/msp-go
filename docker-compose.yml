@@ -136,6 +136,7 @@ services:
       - UPLOADS_DIR=/app/uploads
       - POSTGRES_HOST=postgres
       - REDIS_HOST=redis
+      - QDRANT_URL=http://qdrant:6333
     ports:
       - "127.0.0.1:${GO_API_PORT:-8000}:8000"
     depends_on:
@@ -158,6 +159,52 @@ services:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # Independent ingestion worker. Management endpoints stay inside its loopback namespace.
+  vector-worker:
+    profiles: ["vector"]
+    image: ${BACKEND_IMAGE:-ghcr.io/fraternity-z/mathstudyplatform-backend}:${IMAGE_VERSION:-latest}
+    build:
+      context: ./backend
+    container_name: msp_vector_worker
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    env_file:
+      - ./.env
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - UPLOADS_DIR=/app/uploads
+      - QDRANT_ENABLED=true
+      - QDRANT_URL=http://qdrant:6333
+    command:
+      - msp-vector-worker
+      - run
+      - --concurrency=${VECTOR_WORKER_CONCURRENCY:-2}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    volumes:
+      - ./uploads:/app/uploads
+    networks:
+      - msp_network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+        reservations:
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8091/health"]
+      interval: 30s
+      timeout: 5s
       retries: 3
       start_period: 15s
 

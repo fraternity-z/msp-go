@@ -1,10 +1,12 @@
 # 资源中心 PostgreSQL + Qdrant 双数据库技术方案
 
-> 状态：目标架构；P1 基础 schema、application ports、Qdrant adapter 和可选健康装配已实现；P2-A/M2-A 管理员 embedding 配置已完成真实验证与激活，当前处于强制暂停；D-002 的费用与数据合规仍待确认，Qdrant 当前不可用，P2-B/P3 入库与检索链路未启动。
+> 状态（2026-09-06）：P0、P1、P2 已完成；P3 开发项已全部实现，真实质量与目标容量已通过，5 次真实 Tutor 无答案输出待调用授权和验收，尚未标记 P3 DONE。早期 P2-A 强制暂停已解除；本轮仅在隔离测试环境验收。
 >
 > 适用范围：仅资源中心的文档知识检索、语义搜索和 RAG。其他业务模块继续只依赖 PostgreSQL、Redis、对象存储及既有应用接口。
 >
 > 设计基线：PostgreSQL 是业务事实与授权事实的唯一来源；Qdrant 只保存向量及检索所需的最小 payload 索引，不保存业务权限真相。
+
+本文同时保留长期目标设计。当前 MVP 的范围、接口和退出条件以 [P0 决策基线](../plans/resource-center-qdrant/00-development-readiness.md)、[P2 入库计划](../plans/resource-center-qdrant/02-ingestion-and-vector-indexing.md)、[P3 检索计划](../plans/resource-center-qdrant/03-retrieval-and-rag-integration.md) 和 [进度记录](../plans/resource-center-qdrant/PROGRESS.md) 为准。文中的 OCR、多模态、共享 Collection、多租户 placement、生产集群及灾备目标不表示本轮已经交付；第 17 节的四个演进阶段也不等同于执行计划的 P0-P6 编号。
 
 ## 1. 推荐结论
 
@@ -15,11 +17,13 @@
 3. 资源中心应用层拥有索引和检索用例；Qdrant client 只出现在 Qdrant adapter 中。AI 会话模块只调用 `KnowledgeRetriever` 领域接口，不能直接调用 Qdrant。
 4. 入库使用 PostgreSQL 事务 Outbox、持久化任务、独立 worker 和确定性 upsert，采用最终一致性，不做跨库分布式事务。
 5. 发布采用“新版本完整建索引后再切换 active generation”的蓝绿索引方式。下线、禁用和删除先在 PostgreSQL 生效，再异步清理 Qdrant；检索返回前必须再次用 PostgreSQL 批量鉴权和核对状态。
-6. Collection 默认按“检索场景 + 向量模型族/维度”共享，`tenant_id` 作为已建立 payload index 的必选过滤条件；大租户只有在容量证据充分时才使用 Qdrant custom shard key 或专属 collection。禁止默认按用户、租户或知识库无限创建 Collection。
+6. 当前 MVP 按 D-003 采用“知识库 + 索引代际”独立 Collection，名称由服务端生成并在 PostgreSQL 固化；该决策覆盖早期“检索场景 + 向量模型族/维度”共享方案。每次查询仍强制 tenant、知识库、generation 和模型过滤。共享 Collection、custom shard key 等属于后续容量与多租户演进目标，不能直接替换已发布代际的路由。
 7. 混合检索的首选实现是 PostgreSQL 全文检索与 Qdrant 向量检索并行，在资源中心检索协调器中使用 RRF 融合。这样不需要在 Qdrant 保存分片原文，保持权责边界。未来若启用 Qdrant sparse/BM25 向量，必须另立 ADR，因为这会扩展 Qdrant 的职责。
 8. 开发和集成测试使用固定版本的 Qdrant 单节点 Docker Compose；生产要求高可用时使用 Qdrant cluster（分片与副本）或 Qdrant Cloud。仅在客户端支持时使用 Qdrant local mode 做本地算法实验，不作为 Go 后端的标准依赖。
 
-这套设计直接复用当前项目的应用层端口、PostgreSQL repository、对象级授权、`FOR UPDATE SKIP LOCKED` 领取、租约、有限重试和 dead 状态模式。当前 P1 已落地 provider-neutral ports、`0017_resource_vector_foundation` 和 `internal/adapter/qdrant` REST 骨架；P2-A 通过 `0018_admin_embedding_configuration`、管理员 API/界面和运行时 resolver 落地测试后激活、唯一 active 与无配置/来源漂移失败关闭。当前真实 active 契约为 `voyage-4-large` 的系统版本 `auto-v2-e5ec9a9f2abaa010`（1024 维、Cosine、`send_dimensions=false`、32/30/3）；省略 OpenAI 兼容请求中的可选 `encoding_format` 后完整契约复测成功。collection 创建、worker 和向量写入仍必须等待 D-002 确认、Qdrant 可用和强制暂停解除后由 P2-B 显式触发。
+这套设计复用项目的应用层端口、PostgreSQL repository、对象级授权、`FOR UPDATE SKIP LOCKED` 领取、租约、有限重试和 dead 状态模式。P1/P2-A 通过 `0017_resource_vector_foundation`、`0018_admin_embedding_configuration`、管理员 API/界面和运行时 resolver 落地测试后激活、唯一 active 与无配置/来源漂移失败关闭。真实评测使用已激活的 `voyage-4-large` 系统版本 `auto-v2-e5ec9a9f2abaa010`（1024 维、Cosine、`send_dimensions=false`、批量 32、超时 30 秒、重试 3 次）；兼容请求省略可选 `encoding_format`。
+
+P2-B 已交付四格式异步入库、独立 `cmd/vector-worker`、租约恢复、对账修复、蓝绿重建、资源状态界面，以及 `0020` 任务补强和 `0021` 上传预登记/终态保留清理。P3 已交付 `0019` 词法索引、向量与词法混合召回、最终 PostgreSQL 授权回读、引用访问和 Session RAG 集成。60 份原创文档、100 条冻结查询的真实模型质量评测及四格式实际修复/重建已有记录；10 万条/5 并发本地与完整检索 P95 为 427/622 ms，达到 D-005 门槛，100 万副本仅记录扩展趋势并存在降级。5 条原创无答案的真实 Tutor 输出尚待调用授权和验收，不能据此宣称生产容量或完整 P3 验收通过。
 
 ## 2. 设计范围与非目标
 
@@ -106,13 +110,13 @@ flowchart LR
 
 ### 3.3 是否独立部署向量检索服务
 
-第一、二阶段不建议先拆独立微服务。应先在现有 Go 代码库中增加以下应用端口：
+当前 MVP 保持模块化单体，在现有 Go 代码库中通过以下供应商无关端口组织能力：
 
 - `VectorIndex`：面向 worker 的 upsert、delete、search 和 health 能力。
 - `KnowledgeRetriever`：面向 AI 会话的稳定业务接口。
 - `DocumentParser`、`EmbeddingProvider`、`Reranker`：供应商无关接口。
 
-生产环境可以把 `cmd/vector-worker` 作为独立进程部署，从 API 进程剥离 CPU、内存和外部模型波动，但仍共享同一应用代码和 PostgreSQL 契约。
+`cmd/vector-worker` 已作为独立进程和 Compose 服务交付，从 API 进程剥离 CPU、内存和外部模型波动，仍共享同一应用代码和 PostgreSQL 契约。实际命令和部署边界见 [部署文档](deployment.md)。
 
 只有满足以下任一条件时再抽取“知识检索服务”：
 
@@ -125,24 +129,24 @@ flowchart LR
 
 ### 3.4 与当前代码库的接入位置
 
-| 现有位置 | 建议变化 |
+| 现有位置 | 当前接入 |
 |---|---|
-| `backend/internal/application/resource` | 继续拥有资源、文档版本、发布、下线和索引任务用例；新增端口，不引入 Qdrant client |
+| `backend/internal/application/resource` | 拥有资源、文档版本、发布、下线、索引任务和检索端口，不引入 Qdrant client |
 | `backend/internal/application/session` | 在调用 Chat Agent 前调用 `KnowledgeRetriever`；把结构化 context/citation 传给 Agent，不拼入用户原始问题 |
 | `backend/internal/adapter/llm/einoagent` | 将检索内容渲染为单独的“不可信知识上下文”消息，并保持现有 SSE 和历史消息契约 |
 | `backend/internal/adapter/postgres` | 实现文档、分片、manifest、任务、授权范围和最终候选复核 repository |
-| `backend/internal/adapter/qdrant` | 新增 Qdrant schema、路由、upsert、delete、search 和 verify adapter |
+| `backend/internal/adapter/qdrant` | 实现 Qdrant schema、路由、upsert、delete、search 和检查 adapter |
 | `backend/cmd/api` | 装配查询 adapter 和 `KnowledgeRetriever`；只承担轻量在线检索 |
-| `backend/cmd/vector-worker` | 新增独立进程，复用当前租约、有限批次、重试和优雅停止模式 |
+| `backend/cmd/vector-worker` | 独立进程提供 run、reconcile、rebuild，使用租约、有限批次、重试和优雅停止 |
 
 数据库迁移需要正视当前事实：
 
 - `contents` 已是资源根表，继续复用，不新建同义 `resources` 表。
 - `content_acl` 当前权限粒度有限，第一阶段可兼容读取，统一 subject ACL 通过 forward migration 演进。
 - `embedding_models` 已存在；`0017` 新增含 revision、dimension、metric、tokenizer、normalization 和 max tokens 的不可变 `embedding_model_versions`；`0018` 将版本关联到 `llm_models`，增加 `send_dimensions`、批量/超时/重试、验证/激活/退役时间和单 active 约束。渠道凭据仍只保存在加密的 provider 记录中，不复制到版本表。
-- `outbox_events` 已存在，但当前字段不足以直接证明具备 claim、lease、available time 和 dead queue 契约；复用前必须补齐，否则使用资源中心专用 Outbox。
+- 当前资源 worker 复用并补强 `outbox_events` 和 `resource_processing_jobs`；`0020` 补齐任务与 Outbox 绑定及代际恢复，`0021` 提供终态摘要、保留清理和上传预登记。下文目标模型中的 `resource_vector_outbox` 与 `vector_index_jobs` 是概念名称，不是当前额外维护的第二套队列。
 - 当前 `users` 没有完整 tenant/department 模型，先使用 `default` tenant，不能在接口层伪造已经存在的多租户能力。
-- 当前资源创建链路可直接进入 `PUBLISHED`；接入文档索引后必须把发布与索引就绪拆开，并通过兼容迁移保护旧资源。
+- 旧资源创建接口保持兼容；新文档通过 `/resources/ingestions` 返回 202，以 `DRAFT` 等待处理，只有索引验证和代际激活事务成功后进入 `PUBLISHED`。已有入库资源的更新接口保护源文件、类型和技术状态等不可变字段。
 
 ## 4. 数据所有权与关联键
 
@@ -294,7 +298,9 @@ erDiagram
 
 ### 6.1 推荐 Collection 与 Point Schema
 
-Collection 示例：`resource_chunks_dense_<model_family>_<schema_version>`。
+当前 MVP Collection 名称为 `resource_<knowledge_base_uuid去连字符>_<generation_uuid去连字符>`，由 `vector_index_generations.collection_name` 固化并驱动读写；模型版本、维度和距离绑定该代际。早期目标示例 `resource_chunks_dense_<model_family>_<schema_version>` 仅用于后续共享 Collection 设计，不能作为当前路由规则。
+
+下表保留目标 Point Schema。MVP 以 manifest ID 作为稳定 point ID；实际 payload 使用 `tenant_id`、`knowledge_base_id`、`resource_id`、`document_version_id`、`chunk_id`、`generation_id`、`index_generation`、`model_version_id`、`visibility`、`content_sha256` 和 `embedding_sha256`。当前显式创建 tenant、知识库、资源、generation ID 和 visibility 的五个 keyword 索引；表中的 `embedding_model_version_id` 和 `chunk_hash` 分别对应当前 `model_version_id` 和 `content_sha256`。检索与对账共同校验关联字段，最终发布和授权事实仍以 PostgreSQL 为准。
 
 Qdrant Collection 固定向量大小、距离度量和索引/量化策略；每个 point 由点 ID、一个或多个 named vector 和 payload 组成。首期只使用一个 dense vector，后续如启用混合检索再增加 named sparse vector，不在同一字段混用不同维度。
 
@@ -334,7 +340,7 @@ Qdrant payload index 只为实际过滤、排序或分组字段创建，并在 c
 | 共享 Collection + custom shard key | 可按大租户分布写入和迁移 | 需要集群、容量和迁移运维 | 已有明确热点或隔离需求的租户 |
 | 独立 Qdrant 集群 | 故障域和合规边界清晰 | 成本与运维复杂度最高 | 强监管或超大租户 |
 
-推荐采用“场景 + 模型族/维度”的共享 Collection，并以 payload 过滤作为默认多租户方案：
+以下是后续多租户阶段的共享 Collection 目标，当前 MVP 已由 D-003 的按知识库和代际分集合方案覆盖：
 
 1. 同一 Collection 的向量大小、距离度量、named vector 配置和索引/量化策略固定。
 2. `tenant_id`、`knowledge_base_id`、`index_generation`、模型版本和可检索状态使用 payload index，并由服务端在每次查询中强制过滤。
@@ -357,7 +363,7 @@ Qdrant payload index 只为实际过滤、排序或分组字段创建，并在 c
 - 定时对账通过 Qdrant scroll/count 及 payload 抽样校验 PostgreSQL manifest 与 Qdrant 的点 ID、数量、generation 和 hash。
 - CDC 不是第一选择。只有多个非资源中心系统也产生资源变更时，才考虑从 Outbox 表做 CDC 分发。
 
-现有通用 `outbox_events` 可以复用前提是补齐业务枚举、available time、claim/lease、幂等键和 dead 语义；否则新建资源中心专用 Outbox 更清晰，不能只轮询 `processed_at IS NULL`。
+当前使用已补强的 `outbox_events`，与 `resource_processing_jobs` 同事务登记和推进；领取、续租、重试及终态提交都受租约所有者约束，不能只轮询 `processed_at IS NULL`。
 
 ### 7.2 新增资源时序
 
@@ -374,6 +380,7 @@ sequenceDiagram
     participant M as Qdrant
 
     C->>R: 创建资源并上传文档(Idempotency-Key)
+    R->>P: 预登记对象键和 URI 的上传 reservation
     R->>O: 写入原始对象并计算 checksum
     R->>P: TX: resource + document + version(UPLOADED) + outbox
     P-->>R: commit
@@ -392,6 +399,8 @@ sequenceDiagram
 ```
 
 创建成功只表示业务对象已接收，不表示可检索。客户端通过 operation 或 index status 查询进度。
+
+当前上传在同一存储配置快照中先登记计划对象，再写入并校验来源与长度；业务登记事务完成后移除 reservation。worker 领取超过 24 小时的未登记上传，反查 `resource_documents`、`document_versions` 和 `content_assets` 并确认仍属于当前存储命名空间后清理。超过 30 天的终态 job 和已消费 Outbox 分批清理，先保存必要摘要，确保幂等重放、失败重试与 building 代际发布屏障仍有效；该保留期不用于删除原文或当前引用。旧代际向量使用独立的 7 天保留窗口，过期后由对账删除，当前 active 代际保持不变。
 
 ### 7.3 更新文档
 
@@ -627,6 +636,8 @@ effect       = ALLOW | DENY
 
 ### 10.2 文档类型与解析
 
+本轮已交付 TXT、Markdown、DOCX 和文本层 PDF，保留段落/章节、PDF 页码、表格文本及 DOCX 公式结构，并限制源文件、展开大小、页数、分片和总文本量。扫描 PDF 明确失败并提示需要 OCR；下表的 OCR、PPTX、HTML、表格文件、图片和代码专用解析仍是后续目标。
+
 | 类型 | 处理建议 |
 |---|---|
 | PDF | 优先文本层；扫描页进入 OCR；保留页码、标题、段落和坐标 |
@@ -699,6 +710,8 @@ resource_id
 
 ### 11.1 Go 领域端口
 
+以下为目标接口示意，当前精确签名以 `internal/application/resource` 的 ports 和 ingestion contracts 为准。
+
 ```go
 type KnowledgeRetriever interface {
     Retrieve(ctx context.Context, req RetrievalRequest) (RetrievalResult, error)
@@ -724,6 +737,8 @@ type EmbeddingProvider interface {
 应用 DTO 只使用领域 ID、filter 和候选结果，不出现 Qdrant Collection、shard key、SDK option 或供应商错误类型。
 
 ### 11.2 REST/API 建议
+
+当前 MVP 的实际入口为 `POST/GET /api/v1/resources/ingestions`、`GET /api/v1/resources/ingestions/{resource_id}`、同资源的 `POST /retry`、`POST /unpublish` 和 `DELETE`；检索与引用复用资源路由。重建和对账通过 `msp-vector-worker rebuild/reconcile` CLI 执行，默认 dry-run，应用修复须显式选择知识库/代际范围。下表为扩展目标，不表示每个建议路径均已开放。
 
 | 能力 | 方法与路径 | 关键参数 | 成功响应 |
 |---|---|---|---|
@@ -1097,7 +1112,7 @@ PostgreSQL 兜底只使用全文检索和业务原文，不建议同时维护 pg
 |---|---|---|
 | 双库漂移 | 缺失或幽灵结果 | Outbox、manifest、generation、定时对账、补偿 |
 | ACL 变更延迟 | 越权风险 | PG 强制预范围 + 最终复核；下线先写 PG |
-| Collection 爆炸 | 控制面、payload index 和内存浪费 | 场景/模型共享，默认使用 payload 过滤，禁止按用户创建 |
+| Collection 爆炸 | 控制面、payload index 和内存浪费 | MVP 限定知识库与代际生命周期；多租户规模增长时评估场景/模型共享，禁止按用户创建 |
 | 模型版本混用 | 分数失真、维度错误 | model version 固化，Collection 路由校验 |
 | 大文档费用和积压 | 延迟、成本失控 | 配额、异步、阶段 checkpoint、批处理和 backpressure |
 | Prompt 注入 | 错误工具调用或泄露 | 不可信上下文隔离、工具白名单、引用约束 |
@@ -1219,7 +1234,7 @@ PostgreSQL 兜底只使用全文检索和业务原文，不建议同时维护 pg
 
 ## 18. 实施决策清单
 
-进入开发前必须确定：
+以下为目标架构的决策清单。P0-P3 的已冻结取值见 P0 的 D-001 至 D-006；后续生产部署、备份与多租户目标另行决策，不能据此重新阻塞已授权的测试环境工作。
 
 | 决策 | 负责人需要给出的值 |
 |---|---|
@@ -1250,3 +1265,5 @@ PostgreSQL 兜底只使用全文检索和业务原文，不建议同时维护 pg
 - [OpenSearch Vector Search](https://docs.opensearch.org/latest/vector-search/)
 
 具体 API、参数可用性和部署依赖必须以项目最终锁定的 Qdrant release 官方文档为准，并通过集成测试验证。
+
+当前实测记录与未完成验收项见 [测试环境验收记录（2026-09-06）](../plans/resource-center-qdrant/TEST-ACCEPTANCE-2026-09-06.md)。

@@ -31,6 +31,10 @@ func selectHTTPClient(clients []HTTPDoer) (HTTPDoer, error) {
 }
 
 func providerJSON(ctx context.Context, client HTTPDoer, baseURL, apiKey, path string, payload any, target any) (bool, error) {
+	return providerJSONLimited(ctx, client, baseURL, apiKey, path, payload, target, maxProviderResponseBytes)
+}
+
+func providerJSONLimited(ctx context.Context, client HTTPDoer, baseURL, apiKey, path string, payload any, target any, responseLimit int64) (bool, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return false, errors.New("invalid resource model request")
@@ -61,7 +65,7 @@ func providerJSON(ctx context.Context, client HTTPDoer, baseURL, apiKey, path st
 		return response.StatusCode == 408 || response.StatusCode == 429 || response.StatusCode >= 500,
 			errors.New("resource model request rejected")
 	}
-	if err := httpjson.DecodeLimited(response.Body, maxProviderResponseBytes, target); err != nil {
+	if err := httpjson.DecodeLimited(response.Body, responseLimit, target); err != nil {
 		return false, errors.New("invalid resource model response")
 	}
 	return false, nil

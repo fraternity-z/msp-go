@@ -148,7 +148,7 @@ func main() {
 			MaxBatchSize:   cfg.QdrantMaxBatchSize,
 			WaitForChanges: cfg.QdrantWaitForChanges,
 			PayloadIndexes: cfg.QdrantPayloadIndexFields,
-		})
+		}, qdrantadapter.WithResourceCollections())
 		if err != nil {
 			logger.Error("configure qdrant vector index", "error", err)
 			os.Exit(1)
@@ -519,8 +519,25 @@ func main() {
 		logger.Error("configure resource search service", "error", err)
 		os.Exit(1)
 	}
+	var resourceIngestionService *resourceapp.IngestionService
+	if cfg.QdrantEnabled {
+		documentEmbedder, embedErr := resourceretrievaladapter.NewDocumentEmbedder(adminAIConfigService)
+		if embedErr != nil {
+			logger.Error("configure document embedder", "error_code", "configuration_invalid")
+			os.Exit(1)
+		}
+		resourceIngestionService, err = resourceapp.NewIngestionService(resourceRepo, uploadStorage, documentEmbedder)
+		if err != nil {
+			logger.Error("configure resource ingestion", "error_code", "configuration_invalid")
+			os.Exit(1)
+		}
+	}
+	resourceOptions := []resourcehttp.Option{resourcehttp.WithSearchService(resourceSearchService)}
+	if resourceIngestionService != nil {
+		resourceOptions = append(resourceOptions, resourcehttp.WithIngestionService(resourceIngestionService))
+	}
 	resourceHandler, err := resourcehttp.NewHandler(
-		logger, resourceService, authService, resourcehttp.WithSearchService(resourceSearchService),
+		logger, resourceService, authService, resourceOptions...,
 	)
 	if err != nil {
 		logger.Error("configure resource handler", "error", err)

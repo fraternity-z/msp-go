@@ -2,7 +2,7 @@
 
 ## 部署组成
 
-根目录 `docker-compose.yml` 编排四个默认服务，并提供一个显式 `vector` profile 的 Qdrant 单节点：
+根目录 `docker-compose.yml` 编排四个默认服务，并通过显式 `vector` profile 提供 Qdrant 单节点与独立文档入库 worker：
 
 | 服务 | 默认实现 | 容器端口 |
 |------|----------|----------|
@@ -11,8 +11,9 @@
 | Backend | `backend/Dockerfile` 构建的 Go API | 8000 |
 | Frontend | `frontend/Dockerfile` 构建的 Nginx 静态站点 | 80 |
 | Qdrant（`vector` profile，可选） | `qdrant/qdrant:v1.14.1` | 6333 |
+| vector-worker（`vector` profile，可选） | Backend 镜像中的 `msp-vector-worker` | 8091，仅容器内回环 |
 
-PostgreSQL、Redis、Go API、Qdrant 和前端 `9000` 端口默认只绑定宿主机回环地址；Qdrant profile 不会被默认 `docker compose up` 启动。
+PostgreSQL、Redis、Go API、Qdrant 和前端 `9000` 端口默认只绑定宿主机回环地址；vector-worker 不发布宿主机端口。`vector` profile 不会被默认 `docker compose up` 启动。
 
 ## 准备环境
 
@@ -22,7 +23,7 @@ Copy-Item .env.example .env
 
 使用 Compose 前必须在 `.env` 中显式设置每个环境唯一的随机 `POSTGRES_PASSWORD`；非开发环境会拒绝空值、占位值、与用户名相同或少于 16 字节的密码。生产环境还必须替换 `JWT_SECRET_KEY`、`FERNET_SECRET_KEY`、初始管理员密码、CORS 和管理网段。对象存储后端与云存储凭据不从 `.env` 读取，首次部署后由管理员在“系统设置 > 存储设置”中测试并保存；数据库中的 Access Key 和 Secret Key 使用 `FERNET_SECRET_KEY` 加密，因此该密钥必须稳定保存，不能在重启时轮换或留空。设置 `ENVIRONMENT=production`，不要把开发密钥或真实 `.env` 提交到仓库。启用公众号时还必须按消息模式设置 `WECHAT_OFFICIAL_ACCOUNT_*` 配置；`APP_SECRET`、`TOKEN` 和非明文模式使用的 `AES_KEY` 应由部署密钥系统或权限收紧的 `.env` 提供，不能写入镜像、Compose 文件或版本库。任何凭据出现在截图、日志或聊天记录中都视为泄露，应先在对应供应商控制台轮换再部署。
 
-资源中心向量能力默认关闭。启用时设置 `QDRANT_ENABLED=true`、`QDRANT_URL`、`QDRANT_COLLECTION` 和独立的 `QDRANT_API_KEY`；生产环境没有 API key 时 API 会拒绝启动。Qdrant 只接受 adapter 发出的最小向量/payload，PostgreSQL 仍是资源、版本和权限真相。P1 的开发单节点已通过无鉴权与随机临时 API key 两种模式的实机 smoke；Qdrant 运行时不可达不会阻断 API，详细健康会显示 `degraded`。生产环境仍必须使用非空 key；collection dimension/metric 必须由后续 embedding generation 显式校验。
+资源中心向量能力默认关闭。启用时设置 `QDRANT_ENABLED=true`、`QDRANT_URL`、`QDRANT_COLLECTION` 和独立的 `QDRANT_API_KEY`；生产环境没有 API key 时 API 会拒绝启动。Qdrant 只接受 adapter 发出的最小向量/payload，PostgreSQL 仍是资源、版本和权限真相。P1 的开发单节点已通过无鉴权与随机临时 API key 两种模式的实机 smoke；Qdrant 运行时不可达不会阻断 API，详细健康会显示 `degraded`。每个入库 generation 使用独立 collection，并在写入和发布前显式验证维度、距离度量、模型版本与 manifest；不得把不同模型的向量混入旧 collection。
 
 对象存储运行配置遵循以下操作契约：
 
@@ -98,7 +99,7 @@ docker compose up -d backend frontend
 sudo bash ./scripts/update.sh --version v1.1.0
 ```
 
-更新脚本要求完整的现有部署，会在停止应用写入后备份 PostgreSQL、`.env`、解析后的 Compose 配置、旧镜像 ID 和本地上传目录。首次部署的手工流程与更新脚本都在迁移前幂等启用 `vector` 扩展，因此 Compose 不依赖独立的数据库初始化脚本。从源码手工部署时可使用：
+更新脚本要求完整的现有部署，会在停止应用写入后备份 PostgreSQL、`.env`、解析后的 Compose 配置、旧镜像 ID 和本地上传目录。同一 Compose 项目中已存在的 vector-worker 也在备份前停止；原先运行的 worker 在迁移成功后随应用更新，未启用的 worker 不会自动启动。独立运行的原生 worker 或其他 Compose 项目中的 worker 仍须运维手工停写。首次部署的手工流程与更新脚本都在迁移前幂等启用 `vector` 扩展，因此 Compose 不依赖独立的数据库初始化脚本。从源码手工部署时可使用：
 
 ```powershell
 Set-Location backend
@@ -109,7 +110,7 @@ docker compose up -d backend frontend
 
 默认生产链路不运行 Python 或 Alembic。
 
-迁移 runner 不随 API 自动执行。合并包含 `backend/migrations/*.up.sql` 的变更后，必须在启动新版本 API 前执行一次迁移，并确认重复执行没有待应用版本。已有环境不得在旧 API 仍接收写请求时直接执行迁移，应使用更新脚本先停止应用、完成备份，再迁移并启动新版本：
+迁移 runner 不随 API 或 vector-worker 自动执行。合并包含 `backend/migrations/*.up.sql` 的变更后，必须在启动新版本 API 和 worker 前执行一次迁移，并确认重复执行没有待应用版本。已有环境应使用更新脚本先停止应用和 worker、完成备份，再迁移并启动新版本：
 
 ```powershell
 Set-Location backend
@@ -126,15 +127,47 @@ FROM public.go_schema_migrations
 ORDER BY version;
 ```
 
-当前迁移链由 `0001` 至 `0019` 十九个迁移组成。`0017` 提供资源中心版本、generation 和入库任务基础，`0018` 提供管理员 embedding 不可变配置，`0019` 增加 `session_messages.knowledge` nullable JSONB、`pg_trgm` 与检索索引。部署前确认迁移账号可以在 `public` 安装 `pg_trgm`，并为 GIN 索引创建预留维护窗口、磁盘和锁等待时间；API 不会自动执行迁移。
+当前迁移链由 `0001` 至 `0021` 二十一个迁移组成。`0017` 提供资源中心版本、generation 和入库任务基础，`0018` 提供管理员 embedding 不可变配置，`0019` 增加 `session_messages.knowledge` nullable JSONB、`pg_trgm` 与检索索引。`0020` 补齐入库幂等登记、任务与 outbox/generation 关联及对账游标，`0021` 增加终态任务摘要和未引用上传 staging 的清理租约。部署前确认迁移账号可以在 `public` 安装 `pg_trgm`，并为索引创建预留维护窗口、磁盘和锁等待时间。
 
-空库首次记录版本 `1` 至 `19`，version 18 库只应用 version 19，重复执行为 `applied_count=0`。执行前停止应用写入、完成可恢复备份；先迁移再启动新 API。`0019` 不失效登录会话，旧消息保持 SQL NULL，旧 API 可以忽略新列；应用回滚保留新列、扩展、索引和引用记录。只有从 `0015` 之前升级时，旧的无 `auth_version` 令牌才需要统一重新登录，不能与旧签发逻辑混跑。
+空库首次记录版本 `1` 至 `21`，version 19 库应用 `0020`、`0021`，version 20 库只应用 `0021`，重复执行为 `applied_count=0`。执行前停止 API 和 worker 写入、完成可恢复备份；先迁移再启动新版本。`0019` 至 `0021` 不失效登录会话，旧消息保持 SQL NULL；应用回滚保留新增结构和引用记录，并先核对旧 API/worker 的兼容性。只有从 `0015` 之前升级时，旧的无 `auth_version` 令牌才需要统一重新登录，不能与旧签发逻辑混跑。
 
-迁移后确认版本 19、`public.pg_trgm`、检索索引和 `session_messages.knowledge` 均生效。知识列只存引用与降级元数据，不存来源正文。检索仅消费当前已发布且有 indexed manifest 的版本；迁移不会回填旧资源 chunk，也不会启动 P2-B 入库 worker。历史本地对象仍必须具备可信所有权，引用打开统一走当前授权接口，不得绕过 Go API。旧草稿迁移账本仍按 [迁移策略](../../backend/migrations/README.md) 单独校准，禁止删除记录盲目重放。
+迁移后确认版本 21、`public.pg_trgm`、检索索引、`session_messages.knowledge`、任务关联和 `resource_ingestion_uploads` 均生效。知识列只存引用与降级元数据，不存来源正文。检索仅消费当前已发布且有 indexed manifest 的版本；迁移不会回填旧资源 chunk，也不会启动 worker。历史本地对象仍必须具备可信所有权，引用打开统一走当前授权接口，不得绕过 Go API。旧草稿迁移账本仍按 [迁移策略](../../backend/migrations/README.md) 单独校准，禁止删除记录盲目重放。
 
 重整前执行过旧开发迁移链的数据库（该旧链也曾占用 `0001` 至 `0015`，但迁移名称和内容不同）不属于可原地升级目标。migration runner 会校验迁移版本、名称和未知记录，并在账本与当前代码不一致时拒绝继续。可丢弃的开发库应删除并重建；任何不可丢弃的库必须先停止发布，完成实际 schema、业务数据和 `go_schema_migrations` 核对，再设计专门的数据保留迁移，禁止删除版本记录后重放基线。
 
 若后续从不含提醒入队代码的旧应用升级，必须先应用包含提醒任务表的 forward migration，再排空并停止旧实例流量，完成所有新实例部署后统一开启 `WECHAT_MESSAGE_REMINDERS_ENABLED=true`。不能在旧实例仍接收写请求时直接混合启用：旧实例可以提交私信、通知或答疑，但不会生成提醒任务，且系统不从正文表回填历史任务。
+
+## 文档入库运维
+
+迁移完成后，先由管理员保存 private 存储后端，并验证、激活 embedding 模型版本，再启动独立 worker。API 与 worker 必须使用同一 PostgreSQL、稳定的 `FERNET_SECRET_KEY`、私有存储配置和本地 `UPLOADS_DIR`。Compose 的 worker 已共享可写 `uploads/` 挂载，供读取原文与回收未引用文件；不能改为只读。云存储需要当前 private bucket 的读取和删除权限，切换后端前应迁移仍需使用的对象。
+
+Backend 镜像同时包含 API、迁移程序和 worker，并安装 `poppler-utils`。原生部署必须安装可信来源的 Poppler，确认 `pdfinfo`、`pdftotext` 可执行；可通过同名 CLI 参数指定绝对路径，详见 [开发指南](development.md)。缺少 PDF 工具、扫描 PDF 无文本、加密或非法文档均明确失败，不自动调用 OCR，也不把空白文档标记为发布成功。
+
+```powershell
+docker compose --profile vector up -d qdrant vector-worker
+docker compose --profile vector ps qdrant vector-worker
+docker compose --profile vector exec -T vector-worker wget -qO- http://127.0.0.1:8091/health
+docker compose --profile vector exec -T vector-worker wget -qO- http://127.0.0.1:8091/metrics
+```
+
+`run` 会实际消费队列和执行维护。默认并发 `2`，通过 `VECTOR_WORKER_CONCURRENCY` 调整，范围 `1` 至 `8`；任务租约 60 秒、每 10 秒续租、单任务总预算 10 分钟。任务最多自动领取 3 次，瞬态失败按退避重试，耗尽后进入失败终态；教师可在入库列表查看阶段和固定错误码，并在修复配置后显式重试。过期 worker 无权发布或确认已被接管的任务。停止时先停止接收新任务并取消在途调用；Compose 提供 30 秒退出宽限。
+
+管理 HTTP 只允许绑定回环地址，默认 `127.0.0.1:8091`，不会经前端或公网代理开放。`/health` 在 2 秒预算内检查 PostgreSQL 和 Qdrant；成功不代表模型调用或 PDF 解析已被验证。`/metrics` 包含入库完成/失败尝试、在途数、租约丢失、队列状态与最老等待时间，以及对账差异、终态清理和上传回收计数；采集器需在同一网络命名空间读取，或由受控本机转发采集。标签不包含文档 ID、租户 ID、对象 URL 或原始错误。至少告警 `dead` 队列、最老等待持续增长、租约丢失、对账失败及上传清理失败。
+
+维护命令默认只读；替换下列 UUID 占位值后先查看输出，再执行限定范围的 `--apply`：
+
+```powershell
+docker compose --profile vector exec -T vector-worker msp-vector-worker reconcile --generation='<generation-uuid>'
+docker compose --profile vector exec -T vector-worker msp-vector-worker reconcile --generation='<generation-uuid>' --apply
+docker compose --profile vector exec -T vector-worker msp-vector-worker rebuild --knowledge-base='<knowledge-base-uuid>'
+docker compose --profile vector exec -T vector-worker msp-vector-worker rebuild --knowledge-base='<knowledge-base-uuid>' --apply
+```
+
+参数要求规范 UUID。`reconcile --apply` 必须指定 generation，可再限知识库；`rebuild` 必须指定知识库且不能指定 generation，以管理员当前激活模型创建新代和任务。新代全部就绪后才原子替换，旧代在切换前继续服务。`run` 不接受 `--apply` 或范围参数。维护默认 `--max-pages=200`、`--timeout=2m`，允许范围分别为 `1` 至 `10000` 页和 `1s` 至 `10m`；输出 `complete=false` 表示有限扫描尚未完成，应继续后续批次，不能据此宣称全量一致。
+
+运行中的 worker 默认每 5 分钟执行有限对账与清理。退役 generation 的向量保留 7 天后回收，PostgreSQL 审计元数据仍保留；终态 job/outbox 保留 30 天后每轮各清理至多 1000 条，并保存最后任务摘要。上传对象先登记 staging，超过 24 小时仍未被资源、版本或资产引用时，才通过排他领取和 15 分钟 token 租约回收，每轮至多 8 个。删除限于当前 private 后端、当前命名空间的 `documents/ingestions/` 单个对象，禁止目录递归和跟随符号链接；不存在视为已回收，失败留待下一轮。资源下架或删除立即撤销检索/引用权限并异步清理向量，已登记的原始对象仍按业务保留策略保存，不属于未引用 staging 清理范围。
+
+本轮 Compose 配置校验通过；本机 Docker Engine pipe 不可用，因此未完成镜像构建与容器启动 smoke。原生隔离测试环境的验证与 Docker 部署验证分别记录。真实模型验收仅使用已审查的原创测试语料和独立账号，质量、容量结果及残余项以 [验收记录](../plans/resource-center-qdrant/TEST-ACCEPTANCE-2026-09-06.md) 为准，不能直接外推为生产容量承诺。
 
 ## 反向代理
 
@@ -229,6 +262,7 @@ docker compose logs --tail 200 backend
 10. 验证通用数学判定的 `correct`、`incorrect`、`indeterminate` 响应，以及解析生成不可用、超时、取消、无效输出和验证失败的 `failure.stage`、`failure.code`、`retryable` 契约。
 11. 对两条学习会话聊天接口各发起一次真实 Tutor 请求，确认 `session_info`（仅首次聊天）或 `task_info` 可建立接收状态，缺少元信息时首个 chunk 或 done 仍能兜底确认；模型完成前收到至少两个 `message` chunk，正常路径最终只收到一次 done 且历史记录内容与分片拼接一致。生成期间应能编辑下一轮文字草稿，但发送、回车、附件、语音、模式切换和本轮操作均锁定。分别在零分片和已有分片后停止，确认原 SSE 消费 `cancelled` 后才结算，历史只保留一个助手消息并以精确独立行 `> 已停止生成` 结尾；并发或稍晚重复调用取消接口应得到相同结果，取消成功后立即发送下一轮不应误触发旧 AI 并发租约。再模拟先发生的客户端断连、provider、网络、超时或流传输异常，确认随后取消不会把它改写成用户停止，部分回复以 `> 生成已中断` 结尾。另模拟首轮进程中断留下已过期 claim 且没有助手回复，确认下一次普通聊天先补写中断回复再处理新问题；原首轮恰好并发完成时必须读取完成态，不得误报不可恢复。以上路径均不得重放或提供“重试上一轮”，下一轮草稿保持不变。并发请求应复用上游连接，流已经输出后发生 provider 错误时不得切换候选模型拼接第二份回复。任务取消注册表及 5 分钟停止 tombstone 仅存在于处理流的 API 进程内，所以该验收使用单 API 实例；多实例上线前必须补粘性路由或共享取消协调并重新验收。
 12. 使用平台学生 access token 对 `/v1/responses` 分别发送非流式和 `stream=true` 请求，确认逻辑模型映射、响应 ID/模型/usage、具名 SSE 文本和函数调用事件、终态事件、请求取消释放、学生日额度及流开始后不跨渠道重试；再以 `store=true`、不支持的工具和不存在模型确认稳定 OpenAI 错误结构。
+13. 启用资源向量能力时，用独立测试账号验证 TXT、Markdown、DOCX 和文本 PDF 上传返回 `202`，随后进入 `published`；核对任务进度、真实模型检索与授权引用，下架后旧引用返回 `404` 且禁止缓存。验证失败重试、进程中断后的租约接管、generation 重建与对账，再检查清理队列收敛；测试不得借用真实用户文件或影响其他评测语料。
 
 公众号 live 验收必须记录实际账号类型、认证状态、接口权限、IP 白名单、模板字段和微信返回码。管理员固定测试消息仍走客服消息接口并受用户最近交互窗口约束；三类业务提醒走模板消息接口，必须单独验收目标账号的模板权限、模板 ID 和字段结构。测试号链路通过只能证明代码与测试环境可用，不能替代正式公众号的权限验收，也不能保证可以任意主动群发。
 
@@ -283,21 +317,22 @@ go test ./internal/adapter/llm/einoagent -run 'TestLiveMathSolver' -count=1 -v
 
 ## 更新与回滚
 
-- 使用 `scripts/update.sh --version <镜像标签>` 或按“确认数据库、拉取镜像、停止应用写入、备份数据、迁移、启动新应用”的顺序更新。脚本确认 PostgreSQL 可用并拉取新镜像时旧应用仍保持运行，随后只停止 backend/frontend，不停止数据库和 Redis。
+- 使用 `scripts/update.sh --version <镜像标签>` 或按“确认数据库、拉取镜像、停止 API/worker 写入、备份数据、迁移、启动新版本”的顺序更新。脚本确认 PostgreSQL 可用并拉取新镜像时旧应用仍保持运行，随后停止 backend/frontend 和同项目中已存在的 vector-worker，不停止数据库、Redis 或 Qdrant。原先运行的 worker 随新 backend 镜像更新，未启用的 worker 保持未启用；其他独立 worker 须手工停止。
 - 更新脚本在迁移前创建权限收紧的 `backups/<时间戳>/`，保存 `.env`、解析后的 Compose 配置、旧镜像引用及不可变镜像 ID、PostgreSQL custom-format dump，以及存在时的 `uploads.tar.gz`。可通过 `BACKUP_ROOT` 修改备份根目录。该目录被 Git 忽略，但包含生产凭据和业务数据，仍需限制访问并按运维保留策略清理。
-- `postgres.dump` 失败或为空时脚本不会执行迁移，并尝试重新启动原应用容器；迁移失败时应用保持停止，避免在未知 schema 状态下继续提供服务。目标版本启动后脚本不再以容器健康状态作为停服门禁，更新结果通过 `docker compose ps` 展示，并应继续执行认证和核心业务 smoke。
+- `postgres.dump` 失败或为空时脚本不会执行迁移，并尝试重新启动原应用及此前运行的 worker；迁移失败时应用与 worker 保持停止，避免在未知 schema 状态下继续提供服务。目标版本启动后脚本不再以容器健康状态作为停服门禁，更新结果通过 `docker compose ps` 展示，并应继续执行认证、资源入库和核心业务 smoke。
 - `uploads/` 不在默认路径时，通过 `MSP_UPLOADS_BACKUP_DIR` 指定宿主机持久化目录。使用 S3/七牛等外部对象存储时，仍需遵循对应供应商的版本与备份策略。
 - 数据迁移不提供自动 down migration；失败时恢复备份，或发布经过评审的补偿性 forward migration。
 - 应用镜像回滚前必须确认旧版本能够读取当前数据库结构。
 - 回滚后重新执行健康检查、认证和核心业务 smoke。
 
-需要恢复备份时，先停止应用并保留故障现场，再使用对应备份目录。以下命令会覆盖当前数据库与本地上传目录，只能在确认目标目录和恢复窗口后执行：
+需要恢复备份时，先停止 API 和全部 worker 并保留故障现场，再使用对应备份目录。以下命令会覆盖当前数据库与本地上传目录，只能在确认目标目录和恢复窗口后执行：
 
 ```bash
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.yml}"
 BACKUP_ROOT="${BACKUP_ROOT:-backups}"
 BACKUP_DIR="${BACKUP_ROOT}/20260723_120000"
 docker compose -f "${COMPOSE_FILE}" stop backend frontend
+docker compose -f "${COMPOSE_FILE}" --profile vector stop vector-worker
 docker compose -f "${COMPOSE_FILE}" up -d postgres
 for attempt in {1..30}; do
     if docker compose -f "${COMPOSE_FILE}" exec -T postgres sh -ec 'pg_isready -q -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-${POSTGRES_USER:-postgres}}"'; then
@@ -347,4 +382,4 @@ export IMAGE_VERSION="${ROLLBACK_TAG}"
 docker compose -f "${COMPOSE_FILE}" up -d backend frontend
 ```
 
-恢复备份中的 `.env` 后再使用上述旧镜像。数据库已成功完成 forward migration、且旧镜像确认兼容新 schema 时，可以只回滚镜像；否则必须先恢复数据库或发布补偿迁移，不能只复制旧 `.env` 后直接启动。
+恢复备份中的 `.env` 后再使用上述旧镜像。`previous-images.txt` 也记录 worker 的运行状态和镜像 ID；只有原先启用且确认与恢复后 schema、API 兼容的 worker 才恢复运行。若它原先与 API 使用不同镜像，须按保存的 ID 单独恢复，不能默认为当前 backend 镜像。数据库已成功完成 forward migration、且旧镜像确认兼容新 schema 时，可以只回滚镜像；否则必须先恢复数据库或发布补偿迁移，不能只复制旧 `.env` 后直接启动。

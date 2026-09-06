@@ -2,9 +2,9 @@
 
 > 状态：`IN_PROGRESS`
 > 建立日期：2026-08-30
-> 当前执行：P3 全部 13 项开发已实现；P2-A/M2-A 已完成，P2-B 与 M3 业务验收尚未完成
+> 当前执行：P0-P2 已完成，P3 全部 13 项开发已实现；真实质量和目标容量通过，M3 待 5 次真实无答案问答验收
 > 模型配置：管理员已真实激活 `voyage-4-large` 的系统版本 `auto-v2-e5ec9a9f2abaa010`（1024 维、Cosine、`send_dimensions=false`、32/30/3）；运行时只读取已激活的不可变版本，不允许代码、环境变量或普通请求方替代管理员选择。UI 仅要求选择模型，测试自动识别维度，revision 内部生成，高级参数折叠。
-> 执行范围：2026-09-05 按“推进至 P3 全部完成”补齐混合检索、引用、Session、前端与指标；真实 PostgreSQL/Qdrant 使用隔离样本，外部模型使用 Mock。代码完成率不替代 P2-B 和代表性质量/性能的 M3 验收。
+> 执行范围：项目负责人已明确解除暂停门，授权在测试环境完成 P2-B、真实模型质量与容量评测；结果、门槛与限制见[验收记录](TEST-ACCEPTANCE-2026-09-06.md)。
 > 目标架构：[资源中心 PostgreSQL + Qdrant 双数据库方案](../../technical/resource-center-qdrant-architecture.md)
 > 专项总跟踪：[PROGRESS.md](PROGRESS.md)
 
@@ -18,7 +18,7 @@
 
 ## 2. 当前基线
 
-截至 2026-09-04，已核对的实现基线如下：
+下表保留截至 2026-09-04 的历史实现基线；当前 P2-B 已完成，最新状态见第 4.1 节和专项总进度。
 
 | 范围 | 当前事实 | 计划影响 |
 |---|---|---|
@@ -35,14 +35,14 @@
 
 ## 3.1 本次执行的阶段计划与验收输出
 
-每个阶段独立修改、独立验证；阶段未满足退出条件时不得宣告通过。2026-09-05 已从 P3 只读切片推进到全部 13 项开发，保留 P2-B 和代表性质量/性能作为 M3 完整验收的前置依赖。
+每个阶段独立修改、独立验证；阶段未满足退出条件时不得宣告通过。P2-B 已于 2026-09-06 完成，M3 的真实质量和容量必须按事先冻结的门槛验收。
 
 | 阶段 | 目标 | 主要文件/模块 | 验证方式 | 预期产出与阶段门禁 |
 |---|---|---|---|---|
 | P0 | 记录当前事实，冻结模型管理责任、集合、权限、降级和运维边界 | 本目录 P0 文档、`docs/technical/development.md`、`docs/TODO.md` | 文档交叉核对、`git diff --check`、现有 Go/前端基线命令；记录 Docker/Qdrant 环境阻断 | 决策登记、基线证据、风险与实施顺序；D-001～D-010 全部 `DECIDED` 或合规 `DEFERRED` 后才过门 |
 | P1 | 建立可回退的 schema、application port、配置和 Qdrant adapter 边界 | `backend/migrations/`、`backend/internal/application/`、`backend/internal/adapter/qdrant/`、配置/Compose/健康检查 | Mock 契约测试、迁移复跑、`go test`/`go vet`/`go build`、可用环境下 Compose smoke | 基础契约和开发 Qdrant 可用；无业务写入和完整 RAG |
-| P2-A | 建立管理员控制的 embedding 模型测试、激活、版本历史和运行时解析闭环 | `adminaiconfig` application/HTTP/PostgreSQL、管理端 AI 模型设置、embedding version migration | Mock 与真实 live probe、迁移复跑、权限负向验证、后端 test/vet/build、前端 lint/build | 已真实激活唯一 active 不可变模型契约；完成后已进入强制暂停，不授权后续开发 |
-| P2-B | 打通上传到向量索引的异步、幂等、可重试闭环 | resource service/repository、outbox/job、`backend/cmd/vector-worker`、解析/embedding/Qdrant adapter | 临时测试覆盖公共/边界/错误路径，崩溃重启与重复投递回放，对账和删除验证 | 仅在暂停门解除后启动；资源版本可形成可检索向量，发布、失败、重试和清理语义可证明 |
+| P2-A | 建立管理员控制的 embedding 模型测试、激活、版本历史和运行时解析闭环 | `adminaiconfig` application/HTTP/PostgreSQL、管理端 AI 模型设置、embedding version migration | Mock 与真实 live probe、迁移复跑、权限负向验证、后端 test/vet/build、前端 lint/build | 唯一 active 不可变模型契约通过；曾按门禁暂停，2026-09-06 已明确解除 |
+| P2-B | 打通上传到向量索引的异步、幂等、可重试闭环 | resource service/repository、outbox/job、`backend/cmd/vector-worker`、解析/embedding/Qdrant adapter | 临时测试覆盖公共/边界/错误路径，崩溃重启与重复投递回放，对账和删除验证 | 已完成四格式真实入库、幂等发布、失败重试、对账重建及保留清理 |
 | P3 | 提供混合检索、最终鉴权、引用和 Session RAG MVP | retrieval application port、PostgreSQL FTS、Qdrant adapter、session 组合根、HTTP 契约 | 权限负向测试、RRF/降级验证、引用一致性、端到端 smoke | 检索结果不越权，Qdrant 故障可按 D-008 回退，MVP 门通过 |
 | P4 | 完成生产拓扑、安全、观测、备份恢复和故障演练 | 部署/运维文档、指标告警、备份脚本、恢复与重建流程 | 生产样拓扑演练、故障注入、RPO/RTO 和安全扫描 | 生产就绪门通过，形成可操作运行手册 |
 | P5 | 在批准规模上验证性能和检索质量 | 基准脚本、评测集、索引参数和查询配置 | 固定负载 P95/P99/QPS、backlog、Recall/MRR/nDCG、引用正确率 | 达到 P0 批准的 SLO/阈值，结论可复现 |
@@ -56,7 +56,7 @@
 |---|---|---|---|
 | P0 开发准备与决策冻结 | [00-development-readiness.md](00-development-readiness.md) | 开发前必须确认的决策 | 冻结范围、SLO、模型、ACL、降级和运维边界 |
 | P1 数据与契约基础 | [01-data-and-contract-foundation.md](01-data-and-contract-foundation.md) | MVP 基础部分 | 完成 schema、port、配置、Qdrant adapter 骨架、payload index 和开发环境 |
-| P2 管理员模型配置、入库与向量索引 | [02-ingestion-and-vector-indexing.md](02-ingestion-and-vector-indexing.md) | MVP 入库链路 | P2-A/M2-A 已完成并强制暂停；解除暂停后由 P2-B 完成上传、解析、切块、嵌入、幂等写入、重试和对账 |
+| P2 管理员模型配置、入库与向量索引 | [02-ingestion-and-vector-indexing.md](02-ingestion-and-vector-indexing.md) | MVP 入库链路 | 19/19 已完成：模型管理、上传、解析、切块、嵌入、幂等写入、重试、对账和清理 |
 | P3 检索与 RAG 集成 | [03-retrieval-and-rag-integration.md](03-retrieval-and-rag-integration.md) | MVP 检索链路 | 完成混合检索、最终鉴权、引用和 Session 集成，形成 MVP |
 | P4 生产就绪 | [04-production-readiness.md](04-production-readiness.md) | 生产化阶段 | 完成生产拓扑、安全、观测、备份、恢复和故障演练 |
 | P5 性能与质量 | [05-performance-and-quality.md](05-performance-and-quality.md) | 性能与质量阶段 | 以代表性数据完成索引、吞吐和检索质量调优 |
@@ -72,11 +72,11 @@
 P0 -> P1 -> P2-A -> 强制暂停 -> P2-B -> P3 -> P4 -> P5 -> P6
 ```
 
-P2-A 完成只代表管理员模型配置能力通过验收，不代表实际入库链路已经完成。2026-09-05 的继续指令已推进 P3 全部开发项，仍不以检索 fixture 代替 P2-B 数据生产或真实质量验收。P4 不得在 P3 MVP 未通过前宣告生产就绪；P5 调优结论必须建立在正确性、权限和代表性数据验收之上。P6 不得提前放宽默认隔离规则。
+P2-A 完成只代表模型配置能力通过，暂停门已由项目负责人于 2026-09-06 明确解除并完成 P2-B。P4 不得在 P3 MVP 未通过前宣告生产就绪；P5 调优结论必须建立在正确性、权限和代表性数据验收之上。P6 不得提前放宽默认隔离规则。
 
 ## 4.1 当前执行边界
 
-P0、P1/M1、P2-A/M2-A 已完成。P3 的混合检索、引用、Session、前端和指标均已实现，并执行真实隔离 PostgreSQL/Qdrant 和浏览器验证。P2-B 入库生产链路尚未实现；没有当前 indexed 版本时返回空知识结果。D-002/D-004/D-005 仍按登记等待业务决策与代表性数据，M3 保持未通过；合成精确术语和 Mock 向量只证明开发链路。
+P0、P1/M1、P2/M2 已完成。P3 混合检索、引用、Session、前端和指标均已实现；60 篇原创材料经真实入库，最终 100 条冻结查询的三个质量指标均为 1.0，500 次引用核验通过。10 万条/5 并发本地与完整检索 P95 为 427/622 ms，达到冻结门槛；百万档趋势评测完成并记录降级。M3 仅待 5 次真实 Tutor 无答案问答的调用授权与验收；详细结果以[本轮验收](TEST-ACCEPTANCE-2026-09-06.md)为准。生产拓扑、容灾和完整多租户仍属于 P4-P6。
 
 ## 5. 状态与完成规则
 
@@ -99,7 +99,7 @@ P0、P1/M1、P2-A/M2-A 已完成。P3 的混合检索、引用、Session、前�
 6. 安全检查确认日志、错误响应和文档没有密码、Token、密钥或真实连接串。
 7. 数据库变化有 forward migration、备份/恢复或补偿方案，部署行为变化已同步当前技术文档。
 8. `PROGRESS.md` 的阶段表、决策、风险、证据和更新记录已同步。
-9. P2-A 是显式人工检查点；标记完成只触发暂停，不构成 P2-B 或任何后续阶段的启动授权。
+9. P2-A 是显式人工检查点；必须记录解除暂停的指令。本次已由项目负责人于 2026-09-06 明确授权测试环境 P2-B 与真实质量、容量评测。
 
 ## 6. 文档更新规则
 

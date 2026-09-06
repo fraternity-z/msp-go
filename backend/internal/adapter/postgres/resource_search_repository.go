@@ -58,8 +58,16 @@ func (r ResourceRepository) ResolveSearchScope(ctx context.Context, userID strin
 	if !validResourceSearchScope(scope) {
 		return resourceapp.SearchScope{}, false, errors.New("invalid resource search index contract")
 	}
-	rows, err := r.DB().Query(ctx, `SELECT DISTINCT c.id `+resourceSearchFromSQL+`
-		WHERE `+resourceSearchVisibleSQL+` ORDER BY c.id LIMIT 1001`, resourceSearchScopeArgs(scope)...)
+	rows, err := r.DB().Query(ctx, `SELECT DISTINCT c.id `+resourceSearchResourceFromSQL+`
+		JOIN LATERAL (
+			SELECT 1 FROM public.document_chunks chunk
+			JOIN public.chunk_vector_manifests manifest
+			  ON manifest.chunk_id = chunk.id AND manifest.tenant_id = tenant.id AND manifest.generation_id = generation.id
+			WHERE chunk.document_version_id = version.id AND chunk.tenant_id = tenant.id
+			  AND `+resourceSearchChunkVisibleSQL+`
+			LIMIT 1
+		) indexed_chunk ON true
+		WHERE `+resourceSearchResourceVisibleSQL+` ORDER BY c.id LIMIT 1001`, resourceSearchScopeArgs(scope)...)
 	if err != nil {
 		return resourceapp.SearchScope{}, false, err
 	}
@@ -94,12 +102,42 @@ func (r ResourceRepository) SearchLexical(ctx context.Context, scope resourceapp
 		pattern = "%" + strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(query) + "%"
 	}
 	args = append(args, query, limit, pattern)
+	// Any combined title/body match either matches the body alone or shares a
+	// query term with the title. Materialize the matching chunks too, so the
+	// planner cannot evaluate the expensive title/body predicate on every chunk
+	// before joining candidate IDs. Final ranking and authorization stay intact.
 	rows, err := r.DB().Query(ctx, `
+		WITH lexical_candidates AS MATERIALIZED (
+			SELECT body.id FROM public.document_chunks body
+			WHERE body.deleted_at IS NULL
+			  AND to_tsvector('simple'::regconfig, body.content) @@ plainto_tsquery('simple'::regconfig, $12)
+			UNION
+			SELECT body.id FROM public.document_chunks body
+			WHERE body.deleted_at IS NULL AND $14::text <> '' AND body.content ILIKE $14
+			UNION
+			SELECT title_chunk.id FROM public.contents title_resource
+			JOIN public.resource_documents title_document ON title_document.resource_id = title_resource.id
+			JOIN public.document_chunks title_chunk ON title_chunk.document_version_id = title_document.current_version_id
+			WHERE title_resource.tenant_id = $2 AND title_resource.status = 'PUBLISHED' AND title_resource.deleted_at IS NULL
+			  AND title_document.knowledge_base_id = $3 AND title_chunk.deleted_at IS NULL
+			  AND (to_tsvector('simple'::regconfig, coalesce(title_resource.title, '')) @@ ANY (
+				ARRAY(SELECT plainto_tsquery('simple'::regconfig, term)
+					FROM unnest(tsvector_to_array(to_tsvector('simple'::regconfig, $12))) term))
+				OR ($14::text <> '' AND title_resource.title ILIKE $14))
+			), lexical_chunks AS MATERIALIZED (
+				SELECT candidate_chunk.* FROM lexical_candidates candidate
+				CROSS JOIN LATERAL (
+					SELECT body.* FROM public.document_chunks body WHERE body.id = candidate.id LIMIT 1
+				) candidate_chunk
+			)
 		SELECT chunk.id, c.id, version.id, generation.generation,
 			(ts_rank_cd(search_document.value, search_query.value) +
 			 CASE WHEN $14::text <> '' AND c.title ILIKE $14 THEN 0.2 ELSE 0 END +
 			 CASE WHEN $14::text <> '' AND chunk.content ILIKE $14 THEN 0.05 ELSE 0 END)::double precision
-		`+resourceSearchFromSQL+`
+			`+resourceSearchResourceFromSQL+`
+			JOIN lexical_chunks chunk ON chunk.document_version_id = version.id AND chunk.tenant_id = tenant.id
+			JOIN public.chunk_vector_manifests manifest
+			  ON manifest.chunk_id = chunk.id AND manifest.tenant_id = tenant.id AND manifest.generation_id = generation.id
 		CROSS JOIN LATERAL (
 			SELECT setweight(to_tsvector('simple'::regconfig, coalesce(c.title, '')), 'A') ||
 				setweight(to_tsvector('simple'::regconfig, chunk.content), 'B') AS value
@@ -225,7 +263,7 @@ func resourceSearchScopeArgs(scope resourceapp.SearchScope) []any {
 		scope.ModelVersionID, scope.Collection, scope.Dimension, distance, contentType, scope.Filters.Chapter, scope.Filters.Topic}
 }
 
-const resourceSearchFromSQL = `
+const resourceSearchResourceFromSQL = `
 	FROM public.users requester
 	JOIN public.tenants tenant ON tenant.id = $2 AND tenant.status = 'active'
 	JOIN public.knowledge_bases kb ON kb.id = $3 AND kb.tenant_id = tenant.id
@@ -240,14 +278,18 @@ const resourceSearchFromSQL = `
 	  ON document.resource_id = c.id AND document.tenant_id = tenant.id AND document.knowledge_base_id = kb.id
 	JOIN public.document_versions version
 	  ON version.id = document.current_version_id AND version.document_id = document.id AND version.tenant_id = tenant.id
+`
+
+const resourceSearchFromSQL = resourceSearchResourceFromSQL + `
 	JOIN public.document_chunks chunk ON chunk.document_version_id = version.id AND chunk.tenant_id = tenant.id
 	JOIN public.chunk_vector_manifests manifest
 	  ON manifest.chunk_id = chunk.id AND manifest.tenant_id = tenant.id AND manifest.generation_id = generation.id
 `
 
-// The same predicate governs both coarse recall and final authorization. Unknown
+// Resource scope only needs one visible chunk per document. The same predicates
+// govern coarse recall, lexical candidates, and final authorization. Unknown
 // department deny rules fail closed until authoritative memberships exist.
-const resourceSearchVisibleSQL = `
+const resourceSearchResourceVisibleSQL = `
 	requester.id = $1 AND requester.is_active = true AND requester.status = 'ACTIVE'
 	AND kb.status = 'active' AND generation.state = 'active'
 	AND generation.generation = $4 AND generation.model_version_id = $5
@@ -263,10 +305,6 @@ const resourceSearchVisibleSQL = `
 	AND version.process_status = 'succeeded' AND version.index_status = 'ready'
 	AND version.published_at IS NOT NULL AND version.deleted_at IS NULL
 	AND version.index_generation = generation.generation AND version.model_version_id = generation.model_version_id
-	AND chunk.deleted_at IS NULL AND char_length(chunk.content) <= 64000
-	AND manifest.state = 'indexed' AND manifest.deleted_at IS NULL
-	AND manifest.index_generation = generation.generation AND manifest.model_version_id = generation.model_version_id
-	AND manifest.collection_name = generation.collection_name AND manifest.dimension = generation.dimension
 	AND NOT EXISTS (
 		SELECT 1 FROM public.knowledge_base_acl acl
 		WHERE acl.knowledge_base_id = kb.id AND acl.tenant_id = tenant.id
@@ -303,3 +341,12 @@ const resourceSearchVisibleSQL = `
 		)
 	)
 `
+
+const resourceSearchChunkVisibleSQL = `
+	chunk.deleted_at IS NULL AND char_length(chunk.content) <= 64000
+	AND manifest.state = 'indexed' AND manifest.deleted_at IS NULL
+	AND manifest.index_generation = generation.generation AND manifest.model_version_id = generation.model_version_id
+	AND manifest.collection_name = generation.collection_name AND manifest.dimension = generation.dimension
+`
+
+const resourceSearchVisibleSQL = resourceSearchResourceVisibleSQL + ` AND ` + resourceSearchChunkVisibleSQL

@@ -27,6 +27,7 @@ const (
 )
 
 var collectionNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$`)
+var resourceCollectionPattern = regexp.MustCompile(`^resource_[0-9a-f]{32}_[0-9a-f]{32}$`)
 
 // Config contains only provider connection and transport settings.  Model
 // identity and vector dimensions are supplied by the application generation
@@ -44,6 +45,11 @@ type Config struct {
 
 // Option customizes a Client, primarily for deterministic tests.
 type Option func(*Client) error
+
+// WithResourceCollections permits only server-generated knowledge-base generations.
+func WithResourceCollections() Option {
+	return func(client *Client) error { client.resourceCollections = true; return nil }
+}
 
 // WithHTTPClient injects an HTTP client without changing request semantics.
 func WithHTTPClient(httpClient *http.Client) Option {
@@ -68,9 +74,9 @@ type Client struct {
 	payloadIndexes []resourceapp.VectorPayloadIndex
 	httpClient     *http.Client
 
-	mu                sync.RWMutex
-	expectedDimension int
-	expectedDistance  resourceapp.VectorDistance
+	mu                  sync.RWMutex
+	resourceCollections bool
+	expectedDimensions  map[string]int
 }
 
 // New validates connection settings and creates a Qdrant client.
@@ -110,15 +116,16 @@ func New(cfg Config, options ...Option) (*Client, error) {
 		payloadIndexes = append(payloadIndexes, resourceapp.VectorPayloadIndex{Field: field, Kind: "keyword"})
 	}
 	client := &Client{
-		baseURL:        baseURL,
-		apiKey:         strings.TrimSpace(cfg.APIKey),
-		collection:     collection,
-		timeout:        requestTimeout,
-		healthTimeout:  healthTimeout,
-		maxBatchSize:   maxBatchSize,
-		waitForChanges: cfg.WaitForChanges,
-		payloadIndexes: payloadIndexes,
-		httpClient:     &http.Client{Timeout: requestTimeout},
+		baseURL:            baseURL,
+		apiKey:             strings.TrimSpace(cfg.APIKey),
+		collection:         collection,
+		timeout:            requestTimeout,
+		healthTimeout:      healthTimeout,
+		maxBatchSize:       maxBatchSize,
+		waitForChanges:     cfg.WaitForChanges,
+		payloadIndexes:     payloadIndexes,
+		httpClient:         &http.Client{Timeout: requestTimeout},
+		expectedDimensions: make(map[string]int),
 	}
 	for _, option := range options {
 		if option == nil {
@@ -156,7 +163,7 @@ func (c *Client) route(route string) (string, error) {
 	if route == "" {
 		return c.collection, nil
 	}
-	if route != c.collection {
+	if route != c.collection && !(c.resourceCollections && resourceCollectionPattern.MatchString(route)) {
 		return "", &Error{Operation: "route", Code: resourceapp.ErrVectorInvalid}
 	}
 	return route, nil
@@ -215,6 +222,9 @@ func (c *Client) request(ctx context.Context, operation, method, endpoint string
 		return httpStatusError(operation, response.StatusCode)
 	}
 	if output == nil || response.StatusCode == http.StatusNoContent {
+		// Reaching EOF lets HTTP reuse successful mutation connections. The
+		// acknowledgement body is optional, so draining does not change success.
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxResponseBodyBytes+1))
 		return nil
 	}
 	decoder := json.NewDecoder(io.LimitReader(response.Body, maxResponseBodyBytes))

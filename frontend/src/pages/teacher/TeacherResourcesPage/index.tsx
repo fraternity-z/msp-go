@@ -12,6 +12,8 @@ import { ResourceListView } from './components/ResourceListView';
 import { ResourceDetailModal } from './components/ResourceDetailModal';
 import { ResourceEditModal } from './components/ResourceEditModal';
 import { BatchImportModal } from './components/BatchImportModal';
+import { IngestionPanel } from './components/IngestionPanel';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs';
 import { ConfirmDialog } from '../../../components/ui/ConfirmDialog';
 import { RequestErrorNotice } from '@/components/feedback';
 import { Button } from '../../../components/ui/Button';
@@ -30,6 +32,8 @@ export const TeacherResourcesPage: React.FC = () => {
   const [listError, setListError] = useState<AppError | null>(null);
   const [statsError, setStatsError] = useState<AppError | null>(null);
   const listRequestRef = useRef(0);
+  const [activeView, setActiveView] = useState('resources');
+  const [ingestionRevision, setIngestionRevision] = useState(0);
 
   const currentFilter = useMemo<ResourceFilter>(() => ({
     ...(state.selectedType !== 'all' ? { type: state.selectedType } : {}),
@@ -165,13 +169,13 @@ export const TeacherResourcesPage: React.FC = () => {
             <p className="text-surface-500 dark:text-surface-400">管理和上传教学资源</p>
           </div>
           <div className="flex gap-2">
-            <Button
+            {activeView === 'resources' && <Button
               variant={state.selectionMode ? "primary" : "outline"}
               onClick={() => localDispatch({ type: 'TOGGLE_SELECTION_MODE' })}
             >
               <Check className="w-4 h-4 mr-2" />
               {state.selectionMode ? '退出选择' : '批量选择'}
-            </Button>
+            </Button>}
             <Button onClick={() => localDispatch({ type: 'OPEN_BATCH_IMPORT' })}>
               <Upload className="w-4 h-4 mr-2" />
               上传资源
@@ -179,6 +183,21 @@ export const TeacherResourcesPage: React.FC = () => {
           </div>
         </div>
 
+        <Tabs defaultValue="resources" value={activeView} onValueChange={(value) => {
+          setActiveView(value);
+          if (value === 'resources') {
+            void loadResources(currentFilter);
+            void loadStats();
+          }
+        }} keepMounted={false}>
+          <TabsList className="mb-4">
+            <TabsTrigger value="resources">资源列表</TabsTrigger>
+            <TabsTrigger value="ingestions">文档处理</TabsTrigger>
+          </TabsList>
+          <TabsContent value="ingestions">
+            <IngestionPanel key={ingestionRevision} onChanged={() => { void loadResources(currentFilter); void loadStats(); }} />
+          </TabsContent>
+          <TabsContent value="resources">
         {listError ? (
           <RequestErrorNotice
             error={listError}
@@ -280,6 +299,8 @@ export const TeacherResourcesPage: React.FC = () => {
             )}
           </>
         )}
+          </TabsContent>
+        </Tabs>
       </div>
 
       {/* 删除确认模态框 */}
@@ -327,8 +348,12 @@ export const TeacherResourcesPage: React.FC = () => {
       <BatchImportModal
         isOpen={state.showBatchImportModal}
         onClose={() => localDispatch({ type: 'CLOSE_BATCH_IMPORT' })}
-        onSuccess={() => {
+        onSuccess={(documentsAccepted) => {
           localDispatch({ type: 'CLOSE_BATCH_IMPORT' });
+          if (documentsAccepted) {
+            setIngestionRevision((value) => value + 1);
+            setActiveView('ingestions');
+          }
           void loadResources(currentFilter);
           void loadStats();
         }}

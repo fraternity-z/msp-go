@@ -7,6 +7,7 @@ import { Loader2, Upload, Search, Link as LinkIcon, Check, X, Plus } from 'lucid
 import { cn } from '../../../../libs/utils/cn';
 import { resourceService } from '@/modules/resource/services/resourceService';
 import { uploadResourceFile, validateResourceFile } from '@/modules/upload/services/uploadService';
+import { ingestionService, validateIngestionFile } from '@/modules/resource/services/ingestionService';
 import type { ResourceCreateRequest, BatchImportItem, ResourceType as ResourceTypeEnum } from '@/modules/resource/types/resource';
 import { toAppError, type AppError } from '@/libs/http/apiClient';
 import {
@@ -22,7 +23,7 @@ import {
 interface BatchImportModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (documentsAccepted?: boolean) => void;
 }
 
 function formatRequestError(error: unknown, fallback: string): string {
@@ -43,6 +44,11 @@ interface FileUploadProgress {
   status: 'pending' | 'uploading' | 'done' | 'error';
   url?: string;
   error?: string;
+  accepted?: boolean;
+}
+
+function validateUploadFile(file: File) {
+  return detectResourceTypeFromFile(file.name) === 'video' ? validateResourceFile(file) : validateIngestionFile(file);
 }
 
 export const BatchImportModal = React.memo<BatchImportModalProps>(({ isOpen, onClose, onSuccess }) => {
@@ -55,6 +61,7 @@ export const BatchImportModal = React.memo<BatchImportModalProps>(({ isOpen, onC
   const [importError, setImportError] = useState<string | null>(null);
   const [requestError, setRequestError] = useState<AppError | null>(null);
   const completedLinkImportsRef = useRef(new Map<string, string>());
+  const documentRequestIDsRef = useRef(new Map<string, { key: string; id: string }>());
 
   // 文件上传状态
   const [files, setFiles] = useState<File[]>([]);
@@ -142,12 +149,16 @@ export const BatchImportModal = React.memo<BatchImportModalProps>(({ isOpen, onC
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(e.target.files || []);
     if (selectedFiles.length === 0) return;
+    if (selectedFiles.length > 10) {
+      setImportError('每批最多上传 10 个文件');
+      return;
+    }
 
     // 验证文件类型
     const validFiles: File[] = [];
     const validationErrors: string[] = [];
     for (const file of selectedFiles) {
-      const validation = validateResourceFile(file);
+      const validation = validateUploadFile(file);
       if (!validation.valid) {
         validationErrors.push(`文件 "${file.name}" 不支持：${validation.error}`);
         continue;
@@ -159,6 +170,8 @@ export const BatchImportModal = React.memo<BatchImportModalProps>(({ isOpen, onC
     if (validFiles.length === 0) return;
 
     setFiles(validFiles);
+    setFileProgress({});
+    documentRequestIDsRef.current.clear();
     const items: BatchImportItem[] = validFiles.map((file) => ({
       id: generateTempId(),
       url: '',
@@ -191,8 +204,9 @@ export const BatchImportModal = React.memo<BatchImportModalProps>(({ isOpen, onC
 
     if (selectedIndices.length === 0) {
       if (fileItems.some((item) => item.selected && fileProgress[item.id]?.status === 'done')) {
+        const documentsAccepted = fileItems.some((item) => fileProgress[item.id]?.accepted);
         handleClose();
-        onSuccess();
+        onSuccess(documentsAccepted);
       }
       return;
     }
@@ -201,6 +215,7 @@ export const BatchImportModal = React.memo<BatchImportModalProps>(({ isOpen, onC
     setImportError(null);
     setRequestError(null);
     let hadFailure = false;
+    let documentsAccepted = fileItems.some((item) => fileProgress[item.id]?.accepted);
 
     // 初始化进度状态
     const initialProgress: Record<string, FileUploadProgress> = { ...fileProgress };
@@ -225,6 +240,18 @@ export const BatchImportModal = React.memo<BatchImportModalProps>(({ isOpen, onC
       }));
 
       try {
+        if (detectResourceTypeFromFile(file.name) === 'document') {
+          const requestKey = JSON.stringify([item.title, defaultChapter, defaultTopic]);
+          const savedRequest = documentRequestIDsRef.current.get(item.id);
+          const requestID = savedRequest?.key === requestKey ? savedRequest.id : crypto.randomUUID();
+          documentRequestIDsRef.current.set(item.id, { key: requestKey, id: requestID });
+          await ingestionService.upload({ file, title: item.title, chapter: defaultChapter, topic: defaultTopic, client_request_id: requestID }, (percent) => {
+            setFileProgress((prev) => ({ ...prev, [item.id]: { ...prev[item.id], percent } }));
+          });
+          documentsAccepted = true;
+          setFileProgress((prev) => ({ ...prev, [item.id]: { ...prev[item.id], status: 'done', percent: 100, accepted: true } }));
+          continue;
+        }
         // 已经完成对象存储上传但资源记录失败时，重试只提交资源记录，避免重复上传。
         const existingUrl = fileProgress[item.id]?.url;
         const resourceUrl = existingUrl ?? (await uploadResourceFile(file, (percent) => {
@@ -268,7 +295,7 @@ export const BatchImportModal = React.memo<BatchImportModalProps>(({ isOpen, onC
     setImporting(false);
     if (!hadFailure) {
       handleClose();
-      onSuccess();
+      onSuccess(documentsAccepted);
     }
   };
 
@@ -284,11 +311,12 @@ export const BatchImportModal = React.memo<BatchImportModalProps>(({ isOpen, onC
     setImportError(null);
     setRequestError(null);
     completedLinkImportsRef.current.clear();
+    documentRequestIDsRef.current.clear();
     onClose();
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title="上传资源">
+    <Modal isOpen={isOpen} onClose={() => { if (!importing) handleClose(); }} title="上传资源" stickyHeader className="max-w-2xl max-h-[85dvh] overflow-y-auto rounded-lg p-4 sm:p-6 [&_h3]:text-lg">
       <div className="space-y-4">
         {requestError ? (
           <RequestErrorNotice
@@ -306,8 +334,9 @@ export const BatchImportModal = React.memo<BatchImportModalProps>(({ isOpen, onC
         <div className="flex border-b border-surface-200 dark:border-surface-700">
           <button
             onClick={() => setTab('link')}
+            disabled={importing}
             className={cn(
-              "px-4 py-2 text-sm font-medium border-b-2 transition-colors",
+              "flex-1 whitespace-nowrap px-2 py-2 text-sm font-medium border-b-2 transition-colors",
               tab === 'link'
                 ? "border-primary-500 text-primary-600 dark:text-primary-400"
                 : "border-transparent text-surface-500 hover:text-surface-700 dark:hover:text-surface-300"
@@ -318,8 +347,9 @@ export const BatchImportModal = React.memo<BatchImportModalProps>(({ isOpen, onC
           </button>
           <button
             onClick={() => setTab('file')}
+            disabled={importing}
             className={cn(
-              "px-4 py-2 text-sm font-medium border-b-2 transition-colors",
+              "flex-1 whitespace-nowrap px-2 py-2 text-sm font-medium border-b-2 transition-colors",
               tab === 'file'
                 ? "border-primary-500 text-primary-600 dark:text-primary-400"
                 : "border-transparent text-surface-500 hover:text-surface-700 dark:hover:text-surface-300"
@@ -448,14 +478,14 @@ export const BatchImportModal = React.memo<BatchImportModalProps>(({ isOpen, onC
                   onClick={() => document.getElementById('file-upload-input')?.click()}
                 >
                   <Upload className="w-12 h-12 text-surface-400 mx-auto mb-4" />
-                  <p className="text-surface-600 dark:text-surface-400 mb-2">点击或拖拽文件到此处上传</p>
-                  <p className="text-xs text-surface-500">支持视频（mp4, avi, mov）和文档（pdf, doc, ppt）等格式，最大 500MB</p>
+                  <p className="text-surface-600 dark:text-surface-400 mb-2">选择文件</p>
+                  <p className="text-xs text-surface-500">文档：PDF、DOCX、TXT、MD，最大 50 MiB；视频最大 500 MiB。每批最多 10 个文件。</p>
                   <input
                     id="file-upload-input"
                     type="file"
                     multiple
                     className="hidden"
-                    accept=".mp4,.avi,.mov,.mkv,.webm,.pdf,.doc,.docx,.ppt,.pptx,.txt,.md"
+                    accept=".mp4,.avi,.mov,.mkv,.webm,.pdf,.docx,.txt,.md"
                     onChange={handleFileSelect}
                   />
                 </div>
@@ -465,15 +495,15 @@ export const BatchImportModal = React.memo<BatchImportModalProps>(({ isOpen, onC
               </>
             ) : (
               <>
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <span className="text-sm text-surface-600 dark:text-surface-400">
                     已选文件（{fileItems.filter((i) => i.selected).length}/{fileItems.length} 个）
                   </span>
                   <div className="flex gap-2">
-                    <Button variant="ghost" size="sm" onClick={handleToggleAllFiles}>
+                    <Button variant="ghost" size="sm" className="whitespace-nowrap" disabled={importing} onClick={handleToggleAllFiles}>
                       {fileItems.every((i) => i.selected) ? '取消全选' : '全选'}
                     </Button>
-                    <Button variant="ghost" size="sm" onClick={() => document.getElementById('file-upload-input-add')?.click()}>
+                    <Button variant="ghost" size="sm" className="whitespace-nowrap" disabled={importing} onClick={() => document.getElementById('file-upload-input-add')?.click()}>
                       <Plus className="w-4 h-4 mr-1" />添加
                     </Button>
                     <input
@@ -481,11 +511,17 @@ export const BatchImportModal = React.memo<BatchImportModalProps>(({ isOpen, onC
                       type="file"
                       multiple
                       className="hidden"
-                      accept=".mp4,.avi,.mov,.mkv,.webm,.pdf,.doc,.docx,.ppt,.pptx,.txt,.md"
+                      accept=".mp4,.avi,.mov,.mkv,.webm,.pdf,.docx,.txt,.md"
                       onChange={(e) => {
                         const selectedFiles = Array.from(e.target.files || []);
                         if (selectedFiles.length === 0) return;
-                        const validFiles = selectedFiles.filter((f) => validateResourceFile(f).valid);
+                        if (files.length + selectedFiles.length > 10) {
+                          setImportError('每批最多上传 10 个文件');
+                          return;
+                        }
+                        const invalid = selectedFiles.map((file) => ({ file, validation: validateUploadFile(file) })).filter(({ validation }) => !validation.valid);
+                        setImportError(invalid.length ? invalid.map(({ file, validation }) => `${file.name}：${validation.error}`).join('；') : null);
+                        const validFiles = selectedFiles.filter((file) => validateUploadFile(file).valid);
                         setFiles((prev) => [...prev, ...validFiles]);
                         const newItems: BatchImportItem[] = validFiles.map((file) => ({
                           id: generateTempId(),
@@ -534,7 +570,7 @@ export const BatchImportModal = React.memo<BatchImportModalProps>(({ isOpen, onC
                             <select
                               value={item.type}
                               onChange={(e) => handleUpdateFileItem(item.id, { type: e.target.value as ResourceTypeEnum })}
-                              disabled={importing}
+                              disabled
                               className="px-2 py-1 rounded border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800 text-surface-700 dark:text-surface-300"
                             >
                               <option value="video">视频</option>
@@ -555,7 +591,7 @@ export const BatchImportModal = React.memo<BatchImportModalProps>(({ isOpen, onC
                             </div>
                           )}
                           {progress && progress.status === 'done' && (
-                            <span className="text-xs text-green-500">✓ 上传成功</span>
+                            <span className="text-xs text-green-500">{progress.accepted ? '已接收，等待处理' : '上传成功'}</span>
                           )}
                           {progress && progress.status === 'error' && (
                             <span className="text-xs text-red-500">✗ {progress.error}</span>
@@ -576,7 +612,7 @@ export const BatchImportModal = React.memo<BatchImportModalProps>(({ isOpen, onC
                   })}
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-3 sm:gap-4">
                   <div>
                     <label className="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-1">默认章节</label>
                     <Input value={defaultChapter} onChange={(e) => setDefaultChapter(e.target.value)} placeholder="如：第一章" />
@@ -587,11 +623,11 @@ export const BatchImportModal = React.memo<BatchImportModalProps>(({ isOpen, onC
                   </div>
                 </div>
 
-                <div className="flex justify-between gap-2 pt-4">
+                <div className="flex flex-col gap-2 pt-4 sm:flex-row sm:justify-between">
                   <Button variant="ghost" onClick={() => { setFileItems([]); setFiles([]); }} disabled={importing}>
                     清空列表
                   </Button>
-                  <div className="flex gap-2">
+                  <div className="flex flex-col-reverse gap-2 sm:flex-row [&_button]:whitespace-nowrap">
                     <Button variant="outline" onClick={handleClose} disabled={importing}>取消</Button>
                     <Button
                       onClick={handleFileUpload}

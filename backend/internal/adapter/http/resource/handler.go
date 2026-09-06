@@ -36,10 +36,11 @@ type Authenticator interface {
 
 // Handler serves /resources endpoints.
 type Handler struct {
-	service       Service
-	searchService SearchService
-	auth          Authenticator
-	logger        *slog.Logger
+	service          Service
+	searchService    SearchService
+	ingestionService IngestionService
+	auth             Authenticator
+	logger           *slog.Logger
 }
 
 // NewHandler creates a resource HTTP handler.
@@ -70,6 +71,7 @@ func (h *Handler) Register(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("GET "+prefix+"/{resource_id}", h.detail)
 	mux.HandleFunc("POST "+prefix, h.create)
 	mux.HandleFunc("POST "+prefix+"/search", h.search)
+	h.registerIngestion(mux, prefix+"/ingestions")
 	mux.HandleFunc("GET "+prefix+"/citations/{chunk_id}", h.citation)
 	mux.HandleFunc("PUT "+prefix+"/{resource_id}", h.update)
 	mux.HandleFunc("DELETE "+prefix+"/{resource_id}", h.delete)
@@ -217,6 +219,10 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.UpdateResource(r.Context(), r.PathValue("resource_id"), principal.UserID, input)
 	if err != nil {
+		if errors.Is(err, resourceapp.ErrIngestionConflict) {
+			writeResourceError(w, http.StatusConflict, "INGESTION_CONFLICT", "已入库文档的原文件和正文不可直接修改")
+			return
+		}
 		if errors.Is(err, resourceapp.ErrBadRequest) {
 			writeResourceError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", redact.String(err.Error()))
 			return

@@ -194,6 +194,21 @@ func (r ResourceRepository) updateResource(ctx context.Context, resourceID strin
 	if err != nil {
 		return resourceapp.Resource{}, false, fmt.Errorf("decode resource meta: %w", err)
 	}
+	if input.Body != nil || input.Type != nil || input.URL != nil || input.StorageType != nil {
+		var immutable bool
+		var assetURL string
+		if err := r.DB().QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.resource_documents WHERE resource_id=$1),
+			coalesce((SELECT url FROM public.content_assets WHERE content_id=$1 ORDER BY created_at,id LIMIT 1),'')`, resourceID).Scan(&immutable, &assetURL); err != nil {
+			return resourceapp.Resource{}, false, err
+		}
+		if immutable {
+			if input.Body != nil && *input.Body != body || input.Type != nil && resourceTypeToDB(*input.Type) != currentType ||
+				input.URL != nil && *input.URL != assetURL || input.StorageType != nil && *input.StorageType != metaStringDefault(meta, "storage_type", "external") {
+				return resourceapp.Resource{}, false, resourceapp.ErrIngestionConflict
+			}
+			input.URL = nil
+		}
+	}
 
 	if input.Title != nil {
 		title = *input.Title
@@ -286,6 +301,14 @@ func (r ResourceRepository) updateResource(ctx context.Context, resourceID strin
 
 // DeleteResource soft-deletes a teacher-owned resource.
 func (r ResourceRepository) DeleteResource(ctx context.Context, resourceID string, ownerID string, now time.Time) (bool, error) {
+	var ingested bool
+	if err := r.DB().QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.resource_documents WHERE resource_id=$1)`, resourceID).Scan(&ingested); err != nil {
+		return false, err
+	}
+	if ingested {
+		_, found, err := r.WithdrawIngestion(ctx, ownerID, resourceID, true, now)
+		return found, err
+	}
 	tag, err := r.DB().Exec(ctx, `
 		UPDATE public.contents c
 		SET deleted_at = $3, status = 'ARCHIVED'::public.contentstatus

@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
+
 	resourceapp "mathstudy/backend/internal/application/resource"
 )
 
@@ -50,7 +52,7 @@ type pointWire struct {
 }
 
 type deletePointsRequest struct {
-	Points []string       `json:"points,omitempty"`
+	Points []any          `json:"points,omitempty"`
 	Filter map[string]any `json:"filter,omitempty"`
 }
 
@@ -102,7 +104,7 @@ func (c *Client) EnsureCollection(ctx context.Context, spec resourceapp.VectorCo
 	if err := verifyCollectionInfo(route, info, spec); err != nil {
 		return err
 	}
-	c.setExpectedSchema(spec.Dimension, spec.Distance)
+	c.setExpectedSchema(route, spec.Dimension)
 	indexes := spec.PayloadIndexes
 	if len(indexes) == 0 {
 		indexes = c.payloadIndexes
@@ -135,7 +137,7 @@ func (c *Client) VerifyCollection(ctx context.Context, spec resourceapp.VectorCo
 	if err := c.request(ctx, "count", http.MethodPost, c.endpoint("collections", route, "points", "count"), nil, map[string]any{"exact": true}, &count, c.timeout); err != nil {
 		return resourceapp.VectorCollectionStatus{}, err
 	}
-	c.setExpectedSchema(spec.Dimension, spec.Distance)
+	c.setExpectedSchema(route, spec.Dimension)
 	return resourceapp.VectorCollectionStatus{
 		Route:      route,
 		Dimension:  spec.Dimension,
@@ -207,7 +209,7 @@ func (c *Client) Upsert(ctx context.Context, batch resourceapp.VectorBatch) erro
 	if len(batch.Points) == 0 || len(batch.Points) > c.maxBatchSize {
 		return &Error{Operation: "upsert", Code: resourceapp.ErrVectorInvalid}
 	}
-	dimension := c.expectedVectorDimension()
+	dimension := c.expectedVectorDimension(route)
 	points := make([]pointWire, 0, len(batch.Points))
 	for _, point := range batch.Points {
 		if strings.TrimSpace(point.ID) == "" || len(point.Values) == 0 || !validVector(point.Values) {
@@ -231,16 +233,29 @@ func (c *Client) Delete(ctx context.Context, request resourceapp.VectorDeleteReq
 	if (len(request.IDs) == 0) == (len(request.Filter) == 0) {
 		return &Error{Operation: "delete", Code: resourceapp.ErrVectorInvalid}
 	}
-	ids := make([]string, len(request.IDs))
-	copy(ids, request.IDs)
-	for _, id := range ids {
-		if strings.TrimSpace(id) == "" {
+	ids := make([]any, len(request.IDs))
+	for i, id := range request.IDs {
+		encoded, err := encodePointID(id)
+		if err != nil {
 			return &Error{Operation: "delete", Code: resourceapp.ErrVectorInvalid}
 		}
+		ids[i] = encoded
 	}
 	query := waitQuery(c.waitForChanges || request.Wait)
 	payload := deletePointsRequest{Points: ids, Filter: request.Filter}
 	return c.request(ctx, "delete", http.MethodPost, c.endpoint("collections", route, "points", "delete"), query, payload, nil, c.timeout)
+}
+
+// Qdrant distinguishes UUID strings from unsigned numeric IDs in JSON.
+func encodePointID(value string) (any, error) {
+	if id, err := uuid.Parse(value); err == nil && id.String() == value {
+		return value, nil
+	}
+	number, err := strconv.ParseUint(value, 10, 64)
+	if err != nil || strconv.FormatUint(number, 10) != value {
+		return nil, errors.New("invalid vector point id")
+	}
+	return number, nil
 }
 
 // Search queries the modern Qdrant points/query endpoint and falls back to the
@@ -260,7 +275,7 @@ func (c *Client) Search(ctx context.Context, request resourceapp.VectorSearchReq
 	if limit > 1000 {
 		return nil, &Error{Operation: "search", Code: resourceapp.ErrVectorInvalid}
 	}
-	if dimension := c.expectedVectorDimension(); dimension > 0 && len(request.Values) != dimension {
+	if dimension := c.expectedVectorDimension(route); dimension > 0 && len(request.Values) != dimension {
 		return nil, &Error{Operation: "search", Code: resourceapp.ErrVectorInvalid}
 	}
 	withPayload := any(request.WithPayload)
@@ -411,15 +426,14 @@ func waitQuery(wait bool) url.Values {
 	return url.Values{"wait": []string{strconv.FormatBool(true)}}
 }
 
-func (c *Client) setExpectedSchema(dimension int, distance resourceapp.VectorDistance) {
+func (c *Client) setExpectedSchema(route string, dimension int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.expectedDimension = dimension
-	c.expectedDistance = distance
+	c.expectedDimensions[route] = dimension
 }
 
-func (c *Client) expectedVectorDimension() int {
+func (c *Client) expectedVectorDimension(route string) int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.expectedDimension
+	return c.expectedDimensions[route]
 }

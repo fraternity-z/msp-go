@@ -1,6 +1,6 @@
 # 系统架构
 
-本文描述 MathStudyPlatform 当前有效的技术架构。未完成工作见 [项目待办](../TODO.md)，历史时间点资料见 [归档索引](../archive/README.md)。资源中心完整目标见 [PostgreSQL + Qdrant 双数据库方案](resource-center-qdrant-architecture.md)。P3 已接入管理员 query embedding、可选 Qdrant、FTS/RRF、可选重排、两次 PostgreSQL 鉴权、邻接与预算、引用打开、Session 和前端。P2-B 入库链路尚未交付，因此新资源不会自动生成可检索 chunk；无当前索引时返回空知识结果。代码集成与隔离验证不等于 M3 业务验收或生产质量达标。
+本文描述 MathStudyPlatform 当前有效的技术架构。未完成工作见 [项目待办](../TODO.md)，历史时间点资料见 [归档索引](../archive/README.md)。资源中心完整目标见 [PostgreSQL + Qdrant 双数据库方案](resource-center-qdrant-architecture.md)。资源中心已连接文档异步入库与 P3 检索、引用和 Session：API 登记任务，独立 worker 解析并建立当前索引，查询使用管理员 query embedding、Qdrant、FTS/RRF、可选重排和两次 PostgreSQL 鉴权。质量、容量及 M3 验收结论以 [阶段验收口径](../plans/resource-center-qdrant/TEST-ACCEPTANCE-2026-09-06.md) 和对应阶段报告为准，测试环境结果不等于生产规模承诺。
 
 ## 系统边界
 
@@ -18,6 +18,12 @@ Go net/http API
   |-- Local/Qiniu/S3 storage
   |-- OpenAI-compatible providers through Eino
   `-- Xidian IDS account verification
+
+Independent vector-worker
+  |-- PostgreSQL jobs, leases, outbox and manifests
+  |-- Private Local/Qiniu/S3 document storage
+  |-- PDF/DOCX/TXT/MD parser and deterministic chunks
+  `-- Administrator embedding provider -> Qdrant generations
 ```
 
 Go API 是唯一默认后端。旧 Python FastAPI、LangGraph、LiteLLM、SymPy 和 OCR 工作流不属于当前运行链路。
@@ -57,10 +63,12 @@ frontend/src/
 backend/
 ├── cmd/api/                    # API 入口和依赖装配
 ├── cmd/migrate/                # 数据库迁移入口
+├── cmd/vector-worker/          # 独立文档入库、对账和保留期清理入口
 ├── internal/application/       # 用例编排和事务边界
 ├── internal/adapter/http/      # REST/SSE handler、鉴权和错误映射
 ├── internal/adapter/postgres/  # pgx Repository 和读模型
 ├── internal/adapter/qdrant/    # Qdrant REST adapter（唯一 provider 边界）
+├── internal/adapter/documentparse/ # PDF/DOCX/TXT/MD 有界解析
 ├── internal/adapter/llm/       # Eino Agent 适配
 ├── internal/adapter/storage/   # 本地、七牛和 S3 存储
 ├── internal/integration/       # 西电账户验证等外部集成
@@ -69,6 +77,10 @@ backend/
 ```
 
 依赖方向以应用层接口为中心：HTTP 适配器负责协议转换，PostgreSQL、Redis、存储、Qdrant、LLM 和外部服务通过适配器接入，应用服务负责业务规则与事务编排。Qdrant client import 只允许出现在 `internal/adapter/qdrant` 和 `cmd` 装配边界。资源 `SearchService` 依赖 `SearchRepository`、可选 `SearchCandidateRetriever`/`SearchReranker` 与观测接口；`VectorRetriever` 只依赖 application vector port、query embedder 和 manifest resolver。API 在 `QDRANT_ENABLED` 时装配向量适配器，并把同一个 `SearchService` 作为 Session 的窄 `KnowledgeRetriever`，Session/Eino/HTTP 均不导入 Qdrant client。
+
+`IngestionService` 在当前私有存储快照写文件前先登记 staging；资源、不可变文档版本、任务和 outbox 在 PostgreSQL 事务内登记。`IngestionWorker` 依赖对象读取、解析、分块、embedding 和 vector port，通过 `owner + attempt + lease` 围栏提交状态；外部解析和模型调用不占用数据库事务。每代索引使用独立 collection，写入后逐点验证 payload/hash 并核对数量，满足整代发布屏障后才在 PostgreSQL 原子切换当前代。切换前仍读取旧代，旧代向量保留 7 天；下线或删除先撤销 PostgreSQL 可见性，再异步清理各代向量。对账以实时 manifest 为准，修复缺失/错配并清理多余向量。
+
+详细终态任务及资源入库 outbox 保留 30 天，最后一次任务结果保存在文档紧凑快照中，清理不丢失教师状态、失败重试路由和代发布屏障。超过 24 小时且未被文档、版本或资产引用的 staging 才可领取清理，使用独立删除租约与当前私有命名空间检查；已登记文档的原文件仍按业务保留，不因下线或向量退役而自动删除。该流程不递归扫描或删除存储目录。
 
 | 层 | 负责 | 不负责 |
 |----|------|--------|
@@ -100,6 +112,7 @@ backend/
 ## API 与兼容契约
 
 - 业务 API 默认使用 `/api/v1`，健康检查和指标使用明确的独立入口。
+- `POST /resources/ingestions` 只对当前有效教师/管理员开放，接收一份 PDF/DOCX/TXT/MD、标题、章节、主题和客户端 UUID，成功返回 `202` 与可轮询状态。同一所有者和 UUID 的相同载荷幂等，载荷变化返回 `409`；模型、租户、知识库归属由服务器决定。列表/详情仅返回所有者文档和固定错误码，重试、下线、删除使用独立状态接口。原始文件内容与 URL 不进入状态响应，公开引用继续走 chunk 的当前授权读取。
 - `POST /resources/search` 使用当前认证用户与服务端默认租户，调用方不能指定模型、向量、用户或租户。PostgreSQL 先得到最多 1000 个粗授权资源；超过时向量降级，不截断为完整结果。FTS 与向量并行召回后 RRF 融合，先授权再向可选重排模型提供正文；重排与邻接扩展后再次授权，以当前账户、ACL、发布/删除、版本、generation 和 manifest 加载最终正文。deny 优先于 owner/allow。结果含 citation、模式、降级原因与独立邻接块；无索引为空结果，退役模型不影响有效文本 FTS。
 - `GET /resources/citations/{chunk_id}` 必须同时绑定知识库、版本与 generation，再次执行当前 PostgreSQL 授权；引用失效或撤权统一返回 `404 CITATION_UNAVAILABLE`，响应禁止缓存，旧引用不构成访问凭证。前端通过该接口展示页面与章节定位，不绕过检查跳往旧资源详情或原文件 URL。
 - Session 首次、续聊、流式及历史重开统一传递 `knowledge` 模式、降级信息和实际送入 prompt 的引用。知识正文作为独立的不可信资料消息，固定 Tutor 规则禁止执行资料内指令。16 KiB 动态输入预算共同约束当前问题、模式、附件占用、历史与完整知识序列化；知识最多 8 KiB且按整块保留，固定系统规则另占模型输入容量。数据库只保存引用元数据；带旧知识引用的助手回复不再次进入模型历史，以免撤权后重放资料。
@@ -131,7 +144,7 @@ backend/
 - 数据库只追加经过评审的 Go forward migration，不自动执行 down migration。
 - 每日一题按上海自然日持久化唯一学生任务。个性化模式在教师候选题、教师已发布题库、Solver 验证 AI 三层来源中依次选择，每层优先匹配目标知识点而不把不匹配题提前排除；可恢复的后台准备失败按持久化重试次数在当天重扫，统一题未布置时也会低成本重扫以接收教师当天补排期。历史已创建的失败任务按原班级归属原地恢复补做，补做不恢复连续天数。
 - 教师策略和自动提醒开关在班级锁内按请求字段合并；班级统一题可在暂无排期时启用，生效日无题时学生端明确显示“老师未布置”，不改用题库或 AI 兜底。统一日程保存使用 `schedule_version` 乐观锁，题面在排期时冻结，教师后续编辑题库不会改变已排期或已发放题目。班级统计按入退班历史名册确定日期口径，迁移时仍在班成员可回填，迁移前已离班且从未产生 assignment 的成员无法从现有数据恢复。每日题提醒通过独立的、无正文公众号任务事件持久化，均不创建站内通知。自动提醒按班级和上海日期唯一且只恢复 `skipped/dead`；每次手动点击创建独立事件，可连续发送多轮。低库存事件使用发送时的上海自然日重新核对库存，并可恢复 `skipped/dead`；已发送事件继续保留“该一道题阈值已提醒”的事实，只有库存补充后再次降至一道才生成新提醒。
-- Go API 是唯一后端进程入口，不保留 Python 运行时兼容层。
+- Go API 是唯一对外业务 API；资源入库由独立 Go `vector-worker` 进程执行，不保留 Python 运行时兼容层。PDF 解析通过 Poppler `pdfinfo`/`pdftotext` 子进程，DOCX/TXT/MD 使用有界 Go 解析，不执行 Office 宏或文档指令。
 - 教师学生详情使用 PostgreSQL 聚合读模型：一次 CTE 读取授权、画像、教师范围统计、班级排名和知识点派生输入，再用一次合并的有限活动查询和一次错题查询完成响应；该读路径不改变存储结构或 JSON 契约。安全日志保留由 API 生命周期内的有界后台 worker 执行，归档/删除批次使用 `FOR UPDATE SKIP LOCKED`，多实例可并行续作。管理员数据库备份导入通过流式 JSON 解码和临时 JSONL 分表暂存，总暂存量硬限制为 100 MB；全部校验通过后按外键顺序批量写入，临时文件始终清理。
 - JWT 保持 HMAC 签名及稳定的 issuer/audience/type 契约；access 和 refresh token 都必须携带正数 `auth_version`，缺失版本的历史令牌拒绝使用。邮件发送使用受配置和安全边界约束的 SMTP adapter。
 
@@ -156,4 +169,4 @@ backend/
 
 ## 数据与迁移
 
-PostgreSQL 是业务、版本和权限数据源，Redis 用于缓存和运行时辅助状态，Qdrant 仅保存可重建的向量和最小 payload。数据库结构由 `backend/migrations/` 中的 Go forward migration 管理；`0017` 追加资源中心契约，`0018` 追加管理员不可变模型配置，`0019` 增加 `pg_trgm`/检索索引与 nullable 会话引用元数据，后续从 `0020` 起追加。历史 Alembic 链和开发期增量链已退出当前工作区。迁移规则见 [Go 数据库迁移策略](../../backend/migrations/README.md)。
+PostgreSQL 是业务、版本和权限数据源，Redis 用于缓存和运行时辅助状态，Qdrant 仅保存可重建的向量和最小 payload。数据库结构由 `backend/migrations/` 中的 Go forward migration 管理；`0017` 追加资源中心契约，`0018` 追加管理员不可变模型配置，`0019` 增加 `pg_trgm`/检索索引与 nullable 会话引用元数据，`0020` 追加入库幂等、任务关联与对账游标，`0021` 追加终态保留快照与未引用上传 staging。后续从 `0022` 起追加。历史 Alembic 链和开发期增量链已退出当前工作区。迁移规则见 [Go 数据库迁移策略](../../backend/migrations/README.md)。

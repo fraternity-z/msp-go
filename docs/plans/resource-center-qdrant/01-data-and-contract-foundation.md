@@ -5,7 +5,7 @@
 > 前置依赖：[P0 开发准备与决策冻结](00-development-readiness.md) `DONE`
 > 后续阶段：[P2 入库与向量索引](02-ingestion-and-vector-indexing.md)
 > 模型配置边界：P1 只提供供应商无关 schema/port；实际 embedding 模型由管理员在 P2-A 管理端测试并激活，不由环境变量或代码默认值选定。
-> 后续执行门：P2-A 完成后必须暂停，等待管理员确认 active 模型和项目负责人明确继续，方可启动 P2-B。
+> 后续执行门：P2-A 暂停门已于 2026-09-06 明确解除；P2-B 测试范围及 D-002/D-004/D-005 当前决策见 [P0 补充决策](00-development-readiness.md#42-p0-p3-测试验收补充决策2026-09-06)。
 
 ## 1. 阶段目标
 
@@ -90,4 +90,4 @@
 | 覆盖率 | 临时 adapter `httptest` 覆盖率 85.8% statements，覆盖公开操作的成功、边界、旧 API 回退和错误映射；测试源码与 profile 已删除，不纳入仓库 |
 | 交付物 | migration、application ports、Qdrant adapter 骨架、配置、Compose、健康装配和技术文档 |
 | 回滚或降级验证 | `QDRANT_ENABLED=false` 保持旧启动链；健康/管理员状态仅在配置启用时包含 Qdrant；网络失败映射为 degraded |
-| 遗留风险 | D-002/D-004/D-005/D-009/D-010 仍按 P0 计划暂缓；P2-A 可建设管理员配置闭环，但 P2-A 完成后必须暂停，管理员激活实际 embedding 契约且项目负责人明确继续前不得启动 P2-B；P3 前不能宣称业务可检索，P5 前不能宣称质量或性能达标 |
+| 遗留风险 | 本表验证命令与覆盖率为 2026-09-01 的 P1 历史证据。2026-09-06 已明确解除 P2-A 暂停门，D-002/D-004/D-005 在测试环境范围冻结，后续运行结果见[本轮验收](TEST-ACCEPTANCE-2026-09-06.md)；D-009/D-010 属于 P4 生产范围。 |

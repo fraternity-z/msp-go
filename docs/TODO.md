@@ -20,7 +20,7 @@
 
 ### 资源中心向量检索
 
-- [ ] 按 P0-P6 分阶段接入 Qdrant：P0/P1/M1、P2-A/M2-A 已完成；2026-09-05 补齐 P3 全部 13 项开发，包含 query embedding/真实 Qdrant 召回、FTS/RRF/重排、两次鉴权、邻接预算、引用打开、Session/前端及指标。真实隔离 PostgreSQL/Qdrant 与浏览器验证已执行，外部模型使用 Mock。P2-B 入库生产链路和代表性语料/质量/容量验收仍未完成，M2-B/M3 未通过；无当前索引时返回空知识结果。决策与验收证据见 [专项进度](plans/resource-center-qdrant/PROGRESS.md)。
+- [ ] 按 P0-P6 分阶段接入 Qdrant：P0-P2/M2 已完成，P3 的 13 项开发已交付。2026-09-06 完成四格式真实入库、租约重试、发布与回收、对账重建和状态界面；60 篇原创讲义、100 条固定查询使用管理员真实模型，Recall/MRR/nDCG@5 均为 1.0，500 次引用核验通过。10 万条/5 并发本地与完整检索 P95 为 427/622 ms，达到冻结门槛；百万档完成趋势评测并记录降级。M3 仅待 5 次真实 Tutor 无答案问答的调用授权与验收，P4-P6 保留独立生产与高级能力范围。证据见[专项进度](plans/resource-center-qdrant/PROGRESS.md)和[本轮验收](plans/resource-center-qdrant/TEST-ACCEPTANCE-2026-09-06.md)。
 
 ### AI 学习闭环
 

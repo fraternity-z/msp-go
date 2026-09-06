@@ -7,6 +7,7 @@
 - PostgreSQL 18 + pgvector + pg_trgm
 - Redis 7
 - Qdrant `v1.14.1`（仅在资源中心 vector profile/live smoke 时需要）
+- Poppler 的 `pdfinfo`、`pdftotext`（PDF 入库需要；DOCX/TXT/MD 不依赖外部解析器）
 
 版本变化时以 [go.mod](../../backend/go.mod)、[package.json](../../frontend/package.json) 和 [docker-compose.yml](../../docker-compose.yml) 为准。
 
@@ -116,7 +117,7 @@ go run ./cmd/migrate
 go run ./cmd/migrate  # 重复执行应无待应用版本
 ```
 
-当前迁移链是 `0001` 至 `0019`。`0017` 建立资源中心版本/chunk、generation、job 和可靠 outbox 基础，`0018` 提供管理员 embedding 不可变配置，`0019` 增加 `pg_trgm`、检索索引与会话引用元数据。空库首次记录 version 1 至 19，version 18 库只新增 version 19，复跑无待应用版本。迁移账户须可在 `public` 安装 `pg_trgm` 并创建索引；先迁移再启动新 API。曾执行旧草稿 10 至 13 或旧错题草稿占用 version 11 的本地库，按 [迁移策略](../../backend/migrations/README.md) 校准，不能删除账本重放。runner 校验版本、名称和未知记录；后续从 `0020` 起追加。
+当前迁移链是 `0001` 至 `0021`。`0017` 建立资源中心版本/chunk、generation、job 和可靠 outbox 基础，`0018` 提供管理员 embedding 不可变配置，`0019` 增加 `pg_trgm`、检索索引与会话引用元数据，`0020` 补齐入库任务、幂等和对账游标，`0021` 补齐终态任务快照与上传 staging。空库首次记录 version 1 至 21，version 19 库顺序应用 20、21，version 20 库只新增 21，复跑无待应用版本。迁移账户须可在 `public` 安装 `pg_trgm` 并创建索引；先停止 API/worker 写入、迁移，再启动新进程。曾执行旧草稿 10 至 13 或旧错题草稿占用 version 11 的本地库，按 [迁移策略](../../backend/migrations/README.md) 校准，不能删除账本重放。runner 校验版本、名称和未知记录；后续从 `0022` 起追加。
 
 ## 环境配置
 
@@ -137,14 +138,47 @@ go run ./cmd/migrate  # 重复执行应无待应用版本
 
 ### 本地 Qdrant profile
 
-核心 Compose 栈不会自动启动 Qdrant。需要做 P1 live smoke 时，在根目录执行：
+核心 Compose 栈不会自动启动向量服务。仅运行宿主机 API/worker 时，在根目录启动 Qdrant：
 
 ```powershell
 docker compose --profile vector up -d qdrant
 docker compose --profile vector ps qdrant
 ```
 
-将后端 `.env` 中的 `QDRANT_ENABLED` 设为 `true`，容器内访问地址使用 `http://qdrant:6333`（宿主机运行 Go API 时使用 `http://localhost:6333`）。本地 `QDRANT_API_KEY` 留空时，Compose 会在启动 Qdrant 前移除空的服务端 key 环境变量，避免 Qdrant 把“存在但为空”解释为已开启鉴权；设置非空 key 时，healthcheck 和 adapter 都使用该 key，不能把值写入日志或文档。healthcheck 使用镜像自带 Bash 的 `/dev/tcp`，不依赖镜像中不存在的 `curl`。P1 adapter 不会在未提供 embedding dimension/metric 时自动创建 collection；collection 的 schema 和 payload index 由后续 generation 建立流程显式校验。停止 profile 使用 `docker compose --profile vector stop qdrant`，不要删除 PostgreSQL 或 Qdrant 数据卷。
+将后端 `.env` 中的 `QDRANT_ENABLED` 设为 `true`，容器内访问地址使用 `http://qdrant:6333`（宿主机运行 Go API 时使用 `http://localhost:6333`）。本地 `QDRANT_API_KEY` 留空时，Compose 会在启动 Qdrant 前移除空的服务端 key 环境变量，避免 Qdrant 把“存在但为空”解释为已开启鉴权；设置非空 key 时，healthcheck 和 adapter 都使用该 key，不能把值写入日志或文档。healthcheck 使用镜像自带 Bash 的 `/dev/tcp`，不依赖镜像中不存在的 `curl`。collection 的维度、距离与 payload index 由 worker 按管理员 active 模型和 generation 显式创建/校验，适配器不会猜测模型参数。停止完整 profile 使用 `docker compose --profile vector stop vector-worker qdrant`，不要删除 PostgreSQL 或 Qdrant 数据卷。
+
+### 文档入库与独立 worker
+
+管理员先保存私有 Local/S3/七牛存储，并测试、激活向量模型。API 与 worker 必须使用同一数据库、`FERNET_SECRET_KEY` 和 `UPLOADS_DIR`；worker 每次读取/清理对象前刷新管理员存储配置，切换存储不自动搬迁历史文件。缺少 active 模型时上传返回 `503 EMBEDDING_UNAVAILABLE`，不开启随机模型回退。
+
+本机从可信 Poppler 发行包安装 `pdfinfo` 和 `pdftotext`，不能只安装含 `pdfinfo`/`pdftoppm` 的裁剪包。两个程序可放在 PATH，或通过绝对路径传入；容器运行镜像已安装 `poppler-utils`。在 `backend/` 中运行：
+
+```powershell
+go run ./cmd/vector-worker run --concurrency=2
+# Windows 自定义 Poppler 位置示例
+go run ./cmd/vector-worker run --pdfinfo='C:/tools/poppler/Library/bin/pdfinfo.exe' --pdftotext='C:/tools/poppler/Library/bin/pdftotext.exe'
+Invoke-RestMethod http://127.0.0.1:8091/health
+Invoke-WebRequest http://127.0.0.1:8091/metrics
+```
+
+`run` 持续消费真实任务并执行周期维护，不接受 `--apply`/范围参数。默认并发 2（1-8）、轮询 1 秒、任务租约 60 秒并每 10 秒续租；CLI 的单任务预算为 10 分钟。失效 owner 不能提交发布，进程退出后由过期租约接管。瞬态失败按任务次数指数退避，默认最多 3 次自动领取，之后进入 `dead`；解析错误进入 `failed`，由教师按状态允许的“重试”重新提交。缺少 Poppler 只影响 PDF，不会把扫描件、加密或超页文档误报成功。
+
+教师资源页的文件入口对 PDF/DOCX/TXT/MD 调用 `POST /api/v1/resources/ingestions`，multipart 仅包含 `file`、`title`、`chapter`、`topic`、`client_request_id`。每份文件最多 50 MiB，每批界面最多 10 份，解析最多 200 页/200 万字符。成功返回 `202` 后在“文档处理”页轮询，不代表已经可检索。GET 集合/详情、POST `/{resource_id}/retry`、POST `/{resource_id}/unpublish`、DELETE `/{resource_id}` 均限文档所有者；状态接口禁止缓存，操作按钮以 `can_retry/can_unpublish/can_delete` 为准。已入库正文不可通过旧资源编辑覆盖，标题/章节/主题等元数据仍可修改。
+
+同一文件与元数据在网络失败后复用客户端 UUID，改变载荷需生成新 UUID。持久化 staging 必须先于文件写入；文件与登记身份使用同一个存储快照。服务端当前默认知识库统一归属，普通请求不接受模型或租户覆盖。分块为确定性 NFC 文本；页码未知时为 0，不伪造 PDF 页码，字符偏移按规范化文本的 Unicode 字符计数，token 数是保守 UTF-8 字节上界。文档 embedding 使用 active 不可变模型契约，Voyage 发送 `input_type=document`，每请求最多 32 段且总输入不超过 110000 UTF-8 字节。
+
+维护命令默认 dry-run，先查看 JSON 报告中的差异、范围及 `complete`，再对明确范围应用：
+
+```powershell
+go run ./cmd/vector-worker reconcile --generation='<generation-uuid>'
+go run ./cmd/vector-worker reconcile --generation='<generation-uuid>' --apply
+go run ./cmd/vector-worker rebuild --knowledge-base='<knowledge-base-uuid>'
+go run ./cmd/vector-worker rebuild --knowledge-base='<knowledge-base-uuid>' --apply
+```
+
+`reconcile --apply` 必须指定 canonical generation UUID；可额外用 `--knowledge-base` 收窄范围。`rebuild` 必须指定知识库且始终读取管理员当前 active 模型，创建独立新代任务后由 `run` worker 完成，旧代持续服务直至原子切换。`--max-pages` 默认 200、范围 1-10000；`--timeout` 默认 2 分钟、范围 1 秒至 10 分钟。`complete=false` 表示还有后续页，应用模式保存游标并在下一轮续作，不能把部分扫描当作零差异验收。
+
+持续维护默认每 5 分钟执行（`--reconcile-interval`），覆盖缺失/错配修复、多余向量删除、7 天退役代向量保留和 30 天终态 job/outbox 回收；每轮最多清理各 1000 条历史记录，并保留文档最后任务快照。上传 staging 超过 24 小时且没有任何文档/版本/资产引用才领取，单轮最多 8 个、删除租约 15 分钟。已登记、下线或删除文档的原对象不属于未引用 staging，不能借此批量删除业务文件。回收失败记录固定指标/错误码，之后按租约重新接管，禁止把来源 URL、签名、正文或密钥写入日志。
 
 后台 AI provider 的 `base_url` 可以填写纯主机根地址或完整 API base；纯主机地址会自动补 `/v1`，只要地址中已有路径就会原样使用，因此 `/v1`、`/proxy/v1`、`/v1beta/openai` 均不会被重复改写。非流式调用会自动兼容 Chat Completions 与 Responses，推理模型按大小写不敏感的 `gpt-5*`、`o1*`、`o3*`、`o4*` 前缀识别，也兼容 `provider/model` 命名空间，并优先尝试 Responses。连接测试对推理模型使用 `max_completion_tokens=32`，对旧式 Chat provider 保留 `max_tokens=32`。
 
@@ -152,7 +186,7 @@ docker compose --profile vector ps qdrant
 
 资源向量模型由管理员在“AI 模型设置 -> 向量模型”中选择已启用渠道模型；仅模型为必填项，测试自动识别实际维度，revision 由系统内部生成，高级参数收纳在可折叠区域。自动 revision 的指纹同时绑定渠道、API base、模型来源版本和完整向量/运行契约；显式 revision 若对应的来源或契约不同则返回冲突，已写入的不可变版本不会被覆盖。测试与激活接口使用受控 HTTPS 出站客户端，校验 `/v1/embeddings` 的响应顺序和实际维度；多 API Key 渠道必须逐个验证全部 Key，并要求返回维度一致，网络错误、HTTP 408/429 和 5xx 按“瞬时错误最大重试次数”有限退避，整次验证共享最多 20 次额外重试和一个总超时。测试与激活都会产生真实上游调用，管理端测试按钮提供费用提示。通用 OpenAI 兼容请求不发送可选 `encoding_format`，避免不兼容上游返回 HTTP 400。凭据继续只加密保存在渠道记录中，不复制到 embedding 版本或响应。激活会在事务中退役旧版本并保证 `resource_embedding` 最多一个 active；无 active、渠道/模型停用或探针后来源发生变化时，运行时失败关闭，必须由管理员重新测试并激活，不能由代码、环境变量或普通请求回退覆盖。
 
-管理员于 P2-A 激活 `voyage-4-large` 系统版本 `auto-v2-e5ec9a9f2abaa010`（1024 维、Cosine、`send_dimensions=false`、32/30/3）；这只是当时的验证记录，运行时始终读取当前 active 配置。P3 查询会校验 active 契约与当前 generation 一致，Voyage 使用 `input_type=query`。重排通过管理端智能体 `resource_reranker` 配置，未启用时跳过，失败保留 RRF 顺序；只接受 `/rerank` 的索引/分数响应。P3 本轮外部模型用 Mock 验证，业务数据入库仍由 P2-B 负责。
+管理员于 P2-A 激活 `voyage-4-large` 系统版本 `auto-v2-e5ec9a9f2abaa010`（1024 维、Cosine、`send_dimensions=false`、32/30/3）；这只是当时的验证记录，运行时始终读取当前 active 配置。P3 查询会校验 active 契约与当前 generation 一致，Voyage 使用 `input_type=query`。重排通过管理端智能体 `resource_reranker` 配置，未启用时跳过，失败保留 RRF 顺序；只接受 `/rerank` 的索引/分数响应。常规临时测试 Mock 外部依赖；真实质量和容量评测仅使用隔离测试库、已审查原创语料和明确的模型调用预算，评测口径与证据见 [阶段验收口径](../plans/resource-center-qdrant/TEST-ACCEPTANCE-2026-09-06.md)。
 
 P3 的 `POST /api/v1/resources/search` 最小 JSON 为 `{"query":"导数"}`；支持 `knowledge_base_id`、`top_k`（1-20，默认 5）、`timeout_ms`（100-10000，默认 3000）与 `filters.type/chapter/topic`。16 KiB 请求体拒绝未知字段和尾随 JSON，身份与 trace 来自中间件。响应含 `items`、可选 `adjacent`、`mode`、`degraded`、`degraded_reasons`、`trace_id`；每项带完整正文和 knowledge-base/resource/version/chunk/generation/page/section/title/hash 引用。FTS 使用加权 `simple` 词项与汉字查询的转义子串匹配；模型退役仍可检索有效已发布文本。向量关闭/失败时 FTS-only，重排失败时保留融合；没有当前索引或授权候选时为空，最终授权失败固定 503，参数错误 400，超时 504。
 
@@ -220,7 +254,7 @@ WECHAT_QA_MESSAGE_TEMPLATE_ID=
 
 若测试号页面没有消息加解密模式选项，使用 `plain`。不要自行编造 `AES_KEY`，兼容模式和安全模式必须使用微信后台对应的 `EncodingAESKey`。
 
-消息中心与微信公众号基础分别由 `0003`、`0004` 交付；运行前应用当前全部 `0001` 至 `0019` 迁移。`0019` 包含检索索引与会话引用，空库首次记录 19 个版本，version 18 库只新增 version 19，第二次运行无待应用版本。
+消息中心与微信公众号基础分别由 `0003`、`0004` 交付；运行前应用当前全部 `0001` 至 `0021` 迁移。空库首次记录 21 个版本，已有库只新增尚未应用的版本，第二次运行无待应用版本。
 
 ```powershell
 Set-Location backend

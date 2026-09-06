@@ -106,6 +106,7 @@ restart_previous_apps() {
     local services=()
     [ "$BACKEND_WAS_RUNNING" = true ] && services+=(backend)
     [ "$FRONTEND_WAS_RUNNING" = true ] && services+=(frontend)
+    [ "$VECTOR_WORKER_WAS_RUNNING" = true ] && services+=(vector-worker)
     [ "${#services[@]}" -eq 0 ] || compose start "${services[@]}" || true
 }
 
@@ -142,8 +143,10 @@ fi
 
 BACKEND_WAS_RUNNING=false
 FRONTEND_WAS_RUNNING=false
+VECTOR_WORKER_WAS_RUNNING=false
 service_is_running backend && BACKEND_WAS_RUNNING=true
 service_is_running frontend && FRONTEND_WAS_RUNNING=true
+service_is_running vector-worker && VECTOR_WORKER_WAS_RUNNING=true
 BACKUP_DIR="${BACKUP_ROOT}/$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$BACKUP_ROOT"
 mkdir "$BACKUP_DIR"
@@ -156,6 +159,11 @@ compose config > "$BACKUP_DIR/docker-compose.resolved.yml"
     printf 'frontend_image_id=%s\n' "$(service_image_value frontend '{{.Image}}')"
     printf 'backend_was_running=%s\n' "$BACKEND_WAS_RUNNING"
     printf 'frontend_was_running=%s\n' "$FRONTEND_WAS_RUNNING"
+    printf 'vector_worker_was_running=%s\n' "$VECTOR_WORKER_WAS_RUNNING"
+    if [ -n "$(service_container_id vector-worker)" ]; then
+        printf 'vector_worker=%s\n' "$(service_image_value vector-worker '{{.Config.Image}}')"
+        printf 'vector_worker_image_id=%s\n' "$(service_image_value vector-worker '{{.Image}}')"
+    fi
 } > "$BACKUP_DIR/previous-images.txt"
 
 echo -e "${BLUE}[1/5] 检查 PostgreSQL...${NC}"
@@ -167,7 +175,9 @@ docker pull "${BACKEND_IMAGE}:${VERSION}"
 docker pull "${FRONTEND_IMAGE}:${VERSION}"
 
 echo -e "${BLUE}[3/5] 停止应用写入并备份...${NC}"
-compose stop backend frontend
+STOP_SERVICES=(backend frontend)
+[ -z "$(service_container_id vector-worker)" ] || STOP_SERVICES+=(vector-worker)
+compose stop "${STOP_SERVICES[@]}"
 if ! backup_postgres "$BACKUP_DIR/postgres.dump"; then
     echo -e "${RED}PostgreSQL 备份失败，未执行迁移${NC}" >&2
     restart_previous_apps
@@ -193,7 +203,9 @@ if ! compose run --rm --no-deps backend msp-migrate; then
 fi
 
 echo -e "${BLUE}[5/5] 启动目标版本...${NC}"
-compose up -d backend frontend
+START_SERVICES=(backend frontend)
+[ "$VECTOR_WORKER_WAS_RUNNING" = false ] || START_SERVICES+=(vector-worker)
+compose up -d "${START_SERVICES[@]}"
 
 persist_image_version
 echo -e "${GREEN}=== 更新完成 ===${NC}"
